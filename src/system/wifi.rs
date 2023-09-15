@@ -1,7 +1,6 @@
-use core::{ffi::c_void, mem::MaybeUninit, ptr};
 use esp_idf_sys as sys;
 use sys::EspError;
-use super::macros::precondition;
+use super::event::{EventHandler, self, AttachHandlerError};
 
 const SSID: &str = env!("BARK_WIFI_SSID");
 const PASSWORD: &str = env!("BARK_WIFI_PASS");
@@ -51,9 +50,12 @@ pub unsafe fn init() {
         return;
     }
 
-    if let Err(e) = register_event_handler() {
-        log::error!("failed to register event handler: {e:?}");
-        return;
+    match handle_events() {
+        Ok(handler) => handler.leak(),
+        Err(e) => {
+            log::error!("failed to register event handler: {e:?}");
+            return;
+        }
     }
 
     if let Err(e) = configure() {
@@ -97,43 +99,21 @@ fn fixed<const N: usize>(s: &str) -> [u8; N] {
     buff
 }
 
-unsafe fn register_event_handler() -> Result<(), EspError> {
-    let mut wifi_event: MaybeUninit<sys::esp_event_handler_instance_t>
-        = MaybeUninit::uninit();
+fn handle_events() -> Result<EventHandler, AttachHandlerError> {
+    let wifi_event = unsafe { sys::WIFI_EVENT };
 
-    sys::esp!(sys::esp_event_handler_instance_register(
-        sys::WIFI_EVENT,
-        sys::ESP_EVENT_ANY_ID,
-        Some(dispatch_event),
-        ptr::null_mut(),
-        wifi_event.as_mut_ptr(),
-    ))?;
-
-    Ok(())
-}
-
-unsafe extern "C" fn dispatch_event(
-    _: *mut c_void,
-    event_base: sys::esp_event_base_t,
-    event_id: i32,
-    _event_data: *mut c_void,
-) {
-    precondition!(event_base == sys::WIFI_EVENT);
-
-    match event_id as u32 {
-        sys::wifi_event_t_WIFI_EVENT_STA_START => station_start(),
-        sys::wifi_event_t_WIFI_EVENT_STA_DISCONNECTED => station_disconnected(),
-        _ => {
-            log::debug!("unknown wifi event: {event_id}")
+    event::attach(wifi_event, |msg, _data| {
+        match msg as u32 {
+            sys::wifi_event_t_WIFI_EVENT_STA_START => {
+                log::info!("station_start");
+                unsafe { sys::esp_wifi_connect(); }
+            }
+            sys::wifi_event_t_WIFI_EVENT_STA_DISCONNECTED => {
+                log::info!("station_disconnected");
+            }
+            _ => {
+                log::debug!("unknown wifi event: {msg}")
+            }
         }
-    }
-}
-
-fn station_start() {
-    log::info!("station_start");
-    unsafe { sys::esp_wifi_connect(); }
-}
-
-fn station_disconnected() {
-    log::info!("station_disconnected");
+    })
 }

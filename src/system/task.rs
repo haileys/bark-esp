@@ -11,7 +11,7 @@ const MAX_TASKS: usize = 16;
 
 macro_rules! print_task {
     ( $($expr:tt)* ) => {
-        print!("{id: >4}  {state: <7}  {affinity: >3}  {priority: >4}  {name: <16}", $($expr)*)
+        print!("{id: >4}  {state: <7}  {affinity: >3}  {priority: >4}  {name: <16}  {stack: >8}  {stack_headroom: >8}", $($expr)*)
     }
 }
 
@@ -25,6 +25,8 @@ pub fn log_tasks() {
         affinity = "CPU",
         priority = "PRIO",
         name = "NAME",
+        stack = "STACK",
+        stack_headroom = "HEADROOM",
     );
     println!("\x1b[0m");
 
@@ -35,6 +37,8 @@ pub fn log_tasks() {
             affinity = task.affinity(),
             priority = task.priority(),
             name = task.name(),
+            stack = task.stack(),
+            stack_headroom = task.stack_high_watermark(),
         );
         println!();
     }
@@ -89,10 +93,27 @@ impl TaskStatus {
         self.0.uxCurrentPriority
     }
 
+    pub fn stack(&self) -> StackBase {
+        StackBase(self.0.pxStackBase)
+    }
+
+    pub fn stack_high_watermark(&self) -> usize {
+        self.0.usStackHighWaterMark as usize
+    }
+
     pub fn name(&self) -> &AsciiStr {
         let cstr = unsafe { CStr::from_ptr(self.0.pcTaskName) };
         AsciiStr::from_ascii(cstr.to_bytes())
             .unwrap_or_default()
+    }
+}
+
+struct StackBase(*mut u8);
+
+impl Display for StackBase {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let base = self.0 as usize;
+        fmt::LowerHex::fmt(&base, f)
     }
 }
 

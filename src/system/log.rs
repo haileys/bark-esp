@@ -12,8 +12,6 @@ pub fn init() {
 }
 
 const RESET: &str = "\x1b[0m";
-const BOLD_ON: &str = "\x1b[1m";
-const BOLD_OFF: &str = "\x1b[21m";
 
 struct EspLog;
 

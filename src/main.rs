@@ -10,7 +10,7 @@ pub unsafe extern "C" fn app_main() {
     system::init();
     log::info!("System initialized");
 
-    let netif = Netif::create_default_station();
+    let _netif = Netif::create_default_station();
 
     system::task::log_tasks();
 }
