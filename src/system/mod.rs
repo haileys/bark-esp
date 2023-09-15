@@ -1,5 +1,4 @@
 pub mod log;
-// pub mod sched;
 pub mod task;
 pub mod uart;
 
