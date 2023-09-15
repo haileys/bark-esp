@@ -3,18 +3,14 @@
 
 mod system;
 
+use system::network::Netif;
+
 #[no_mangle]
 pub unsafe extern "C" fn app_main() {
     system::init();
-    main();
-}
+    log::info!("System initialized");
 
-fn main() {
-    log::info!("hello world from esp!");
+    let netif = Netif::create_default_station();
+
     system::task::log_tasks();
-}
-
-#[panic_handler]
-fn panic(_info: &core::panic::PanicInfo) -> ! {
-    unsafe { esp_idf_sys::abort(); }
 }

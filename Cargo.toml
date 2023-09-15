@@ -1,6 +1,6 @@
 [package]
-name = "esp-idf-nostd-sample"
-version = "0.1.0"
+name = "bark-esp"
+version = "0.0.0"
 authors = ["Hailey Somerville <hailey@hailey.lol>"]
 edition = "2021"
 resolver = "2"
@@ -25,10 +25,15 @@ log = { version = "0.4.17", default-features = false }
 
 [patch.crates-io]
 embuild = { git = "https://github.com/haileys/embuild" }
-esp-idf-sys = { git = "https://github.com/haileys/esp-idf-sys" }
+# esp-idf-sys = { git = "https://github.com/haileys/esp-idf-sys" }
+esp-idf-sys = { path = "../esp-idf-sys" }
 
 # esp-idf-hal = { version = "0.41", optional = true, default-features = false }
 # embedded-svc = { version = "0.25", optional = true, default-features = false }
 
 [build-dependencies]
 embuild = "0.31.2"
+
+# [[package.metadata.esp-idf-sys.extra_components]]
+# component_dirs = ["vendor/esp-idf/components/esp_wifi"]
+# bindings_header = "bindings.h"

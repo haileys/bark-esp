@@ -3,7 +3,7 @@ use core::fmt::{Display, self};
 use core::ptr;
 
 use ascii::AsciiStr;
-use esp_idf_sys::{TaskStatus_t, uxTaskGetSystemState, eTaskState};
+use esp_idf_sys::{TaskStatus_t, uxTaskGetSystemState, eTaskState, tskNO_AFFINITY};
 use heapless::Vec;
 use esp_println::{println, print};
 
@@ -76,7 +76,13 @@ impl TaskStatus {
     }
 
     pub fn affinity(&self) -> CoreAffinity {
-        self.0.xCoreID.into()
+        let core_id = self.0.xCoreID as u32;
+
+        if core_id == tskNO_AFFINITY {
+            CoreAffinity::Any
+        } else {
+            CoreAffinity::Pinned(core_id)
+        }
     }
 
     pub fn priority(&self) -> u32 {
