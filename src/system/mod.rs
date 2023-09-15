@@ -1,5 +1,6 @@
 pub mod eventloop;
 pub mod log;
+pub mod logo;
 pub mod macros;
 pub mod network;
 pub mod nvs;
@@ -13,6 +14,8 @@ pub unsafe fn init() {
     // init uart and log first
     uart::init_uart0();
     log::init();
+
+    esp_println::print!("{}", logo::LOGO);
 
     eventloop::init();
     nvs::init();

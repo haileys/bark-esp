@@ -11,6 +11,10 @@ pub fn init() {
     log::set_max_level(log::LevelFilter::Trace);
 }
 
+const RESET: &str = "\x1b[0m";
+const BOLD_ON: &str = "\x1b[1m";
+const BOLD_OFF: &str = "\x1b[21m";
+
 struct EspLog;
 
 impl log::Log for EspLog {
@@ -23,13 +27,14 @@ impl log::Log for EspLog {
         let label = log_label(record.level());
         let target = record.target();
         let timestamp = unsafe { esp_log_timestamp() };
-        let reset = COLOR_RESET;
 
         let mut buffer = Buffer::<300>::new();
         let _ = write!(
             &mut buffer,
-            "{color}{label} [{timestamp:>10}] {target}: {}{reset}",
+            "{c_normal}{label} [{timestamp:>10}] {c_bright}{target}:{RESET}{c_normal} {}{RESET}",
             record.args(),
+            c_normal = color.normal,
+            c_bright = color.bright,
         );
 
         let tag = static_str(record.target())
@@ -117,10 +122,6 @@ impl<const SIZE: usize> Write for Buffer<SIZE> {
     }
 }
 
-// taken from esp_log.h:
-
-const COLOR_RESET: &'static str = "\x1b[0m";
-
 fn log_level(level: Level) -> esp_log_level_t {
     // we don't get the constants in bindings for some reason, hardcode:
     match level {
@@ -132,22 +133,27 @@ fn log_level(level: Level) -> esp_log_level_t {
     }
 }
 
-fn log_color(level: Level) -> &'static str {
+struct Color {
+    normal: &'static str,
+    bright: &'static str,
+}
+
+fn log_color(level: Level) -> Color {
     match level {
-        Level::Error => "\x1b[0;31m",
-        Level::Warn  => "\x1b[0;33m",
-        Level::Info  => "\x1b[0;32m",
-        Level::Debug => "",
-        Level::Trace => "",
+        Level::Error => Color { normal: "\x1b[31m", bright: "\x1b[1;31m" },
+        Level::Warn  => Color { normal: "\x1b[33m", bright: "\x1b[1;33m" },
+        Level::Info  => Color { normal: "\x1b[32m", bright: "\x1b[1;32m" },
+        Level::Debug => Color { normal: "", bright: "" },
+        Level::Trace => Color { normal: "\x1b[2m", bright: "\x1b[2m" },
     }
 }
 
 fn log_label(level: Level) -> &'static str {
     match level {
-        Level::Error => "E",
-        Level::Warn  => "W",
-        Level::Info  => "I",
-        Level::Debug => "D",
-        Level::Trace => "T",
+        Level::Error => "ERROR",
+        Level::Warn  => "WARN ",
+        Level::Info  => "INFO ",
+        Level::Debug => "DEBUG",
+        Level::Trace => "TRACE",
     }
 }
