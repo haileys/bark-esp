@@ -1,6 +1,6 @@
 use core::ffi::{CStr, c_char};
 
-use esp_idf_sys::{esp_log_level_t, esp_log_level_set, esp_log_timestamp, esp_log_level_t_ESP_LOG_VERBOSE};
+use esp_idf_sys::{esp_log_level_t, esp_log_timestamp};
 use log::Level;
 use cstr::cstr;
 use core::fmt::Write;
@@ -11,15 +11,6 @@ pub fn init() {
     log::set_max_level(log::LevelFilter::Trace);
 }
 
-extern "C" {
-    fn esp_log_write(
-        level: esp_log_level_t,
-        tag: *const c_char,
-        fmt: *const c_char,
-        arg: *const c_char,
-    );
-}
-
 struct EspLog;
 
 impl log::Log for EspLog {
@@ -28,8 +19,6 @@ impl log::Log for EspLog {
     }
 
     fn log(&self, record: &log::Record) {
-        esp_println::println!("EspLog::log");
-
         let color = log_color(record.level());
         let label = log_label(record.level());
         let target = record.target();
@@ -43,21 +32,53 @@ impl log::Log for EspLog {
             record.args(),
         );
 
-        static DYNAMIC_TAG: &CStr = cstr!("rust-dynamic");
+        let tag = static_str(record.target())
+            .unwrap_or("rust-dynamic");
 
-        esp_println::println!("about to log...");
-
-        unsafe {
-            esp_log_write(
-                log_level(record.level()),
-                DYNAMIC_TAG.as_ptr(),
-                cstr!("%s\n").as_ptr(),
-                buffer.as_cstr().as_ptr(),
-            );
-        }
+        esp_log(record.level(), tag, buffer.as_cstr());
     }
 
     fn flush(&self) {}
+}
+
+fn esp_log(level: log::Level, tag: &'static str, message: &CStr) {
+    extern "C" {
+        fn esp_log_write(
+            level: esp_log_level_t,
+            tag: *const u8,
+            fmt: *const c_char,
+            arg: *const c_char,
+        );
+    }
+
+    unsafe {
+        esp_log_write(
+            log_level(level),
+            tag.as_ptr(),
+            cstr!("%s\n").as_ptr(),
+            message.as_ptr(),
+        );
+    }
+}
+
+fn static_str(string: &str) -> Option<&'static str> {
+    extern "C" {
+        static _rodata_start: u8;
+        static _rodata_end: u8;
+    }
+
+    let rodata_start: *const u8 = unsafe { &_rodata_start };
+    let rodata_end: *const u8 = unsafe { &_rodata_end };
+
+    let ptr = string.as_ptr();
+
+    if rodata_start <= ptr && ptr < rodata_end {
+        Some(unsafe {
+            core::mem::transmute::<&str, &'static str>(string)
+        })
+    } else {
+        None
+    }
 }
 
 struct Buffer<const SIZE: usize> {
