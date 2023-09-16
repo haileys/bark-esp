@@ -22,7 +22,7 @@ impl EventHandler {
 #[derive(Debug, From)]
 pub enum AttachHandlerError {
     RegisterEventHandler(EspError),
-    AllocDispatcher(MallocError),
+    AllocateClosure(MallocError),
 }
 
 pub fn attach<F: FnMut(i32, *mut c_void) + 'static>(
@@ -44,6 +44,8 @@ pub fn attach<F: FnMut(i32, *mut c_void) + 'static>(
 
         instance.assume_init()
     };
+
+    log::info!("Attached event");
 
     Ok(EventHandler {
         event_base,
@@ -72,6 +74,8 @@ impl Drop for EventHandler {
                 sys::ESP_EVENT_ANY_ID,
                 self.instance,
             );
+
+            log::info!("Unregistered event");
         }
     }
 }

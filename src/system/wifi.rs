@@ -28,7 +28,7 @@ pub unsafe fn init() {
         ampdu_rx_enable: AMPDU_ENABLE,
         ampdu_tx_enable: AMPDU_ENABLE,
         amsdu_tx_enable: AMPDU_ENABLE,
-        nvs_enable: 0,
+        nvs_enable: 1,
         nano_enable: sys::WIFI_NANO_FORMAT_ENABLED as i32,
         rx_ba_win: sys::WIFI_DEFAULT_RX_BA_WIN as i32,
         wifi_task_core_id: 0, // main core
@@ -65,17 +65,42 @@ pub unsafe fn init() {
     if let Err(e) = sys::esp!(sys::esp_wifi_start()) {
         log::error!("esp_wifi_start failed: {e:?}");
     }
+
+    if let Err(e) = sys::esp!(sys::esp_wifi_start()) {
+        log::error!("esp_wifi_start failed: {e:?}");
+    }
 }
 
 unsafe fn configure() -> Result<(), EspError> {
+    log::info!("configuring wifi with ssid: {SSID:?}");
+
     let config = sys::wifi_sta_config_t {
         ssid: fixed(SSID),
         password: fixed(PASSWORD),
+        scan_method: sys::wifi_scan_method_t_WIFI_ALL_CHANNEL_SCAN,
+        bssid_set: false,
+        bssid: [0u8; 6],
+        channel: 0,
+        listen_interval: 3,
+        sort_method: sys::wifi_sort_method_t_WIFI_CONNECT_AP_BY_SIGNAL,
         threshold: sys::wifi_scan_threshold_t {
             authmode: sys::wifi_auth_mode_t_WIFI_AUTH_WPA2_PSK,
-            ..Default::default()
+            rssi: -99,
         },
-        ..Default::default()
+        pmf_cfg: sys::wifi_pmf_config_t {
+            capable: true,
+            required: false,
+        },
+        sae_pwe_h2e: 3,
+        failure_retry_cnt: 1,
+
+        // zero stuff out we don't care about:
+        _bitfield_1: Default::default(),
+        _bitfield_2: Default::default(),
+        _bitfield_align_1: Default::default(),
+        _bitfield_align_2: Default::default(),
+        sae_pk_mode: Default::default(),
+        sae_h2e_identifier: Default::default(),
     };
 
     let mut config = sys::wifi_config_t { sta: config };
@@ -106,7 +131,10 @@ fn handle_events() -> Result<EventHandler, AttachHandlerError> {
         match msg as u32 {
             sys::wifi_event_t_WIFI_EVENT_STA_START => {
                 log::info!("station_start");
-                unsafe { sys::esp_wifi_connect(); }
+                let result = unsafe { sys::esp!(sys::esp_wifi_connect()) };
+                if let Err(e) = result {
+                    log::error!("esp_wifi_connect failed: {e:?}");
+                }
             }
             sys::wifi_event_t_WIFI_EVENT_STA_DISCONNECTED => {
                 log::info!("station_disconnected");
