@@ -1,6 +1,7 @@
 use core::sync::atomic::Ordering;
 use core::mem::MaybeUninit;
 use core::ffi::c_void;
+use core::ptr;
 
 use atomic_enum::atomic_enum;
 use esp_idf_sys::{self as sys, EspError};
@@ -30,10 +31,6 @@ pub enum WifiState {
 pub static STATE: AtomicWifiState = AtomicWifiState::new(WifiState::Uninit);
 
 pub unsafe fn init() {
-    start_wifi();
-}
-
-unsafe fn start_wifi() {
     let config = sys::wifi_init_config_t {
         osi_funcs: &sys::g_wifi_osi_funcs as *const _ as *mut _,
         wpa_crypto_funcs: sys::g_wifi_default_wpa_crypto_funcs,
@@ -64,10 +61,11 @@ unsafe fn start_wifi() {
         return;
     }
 
-    if sys::esp_netif_create_default_wifi_sta() == core::ptr::null_mut() {
+    let netif = sys::esp_netif_create_default_wifi_sta();
+    if netif == ptr::null_mut() {
         log::error!("esp_netif_create_default_wifi_sta failed");
         return;
-    }
+    };
 
     if let Err(e) = sys::esp!(sys::esp_wifi_init(&config)) {
         log::error!("esp_wifi_init failed: {e:?}");
@@ -176,6 +174,7 @@ unsafe fn attach_event(event: sys::esp_event_base_t, handler: EventHandlerFunc) 
     Ok(())
 }
 
+/// Runs on `sys-evt` task, has barely any stack, be careful
 unsafe extern "C" fn on_wifi_event(
     _: *mut c_void,
     _: sys::esp_event_base_t,
@@ -195,6 +194,7 @@ unsafe extern "C" fn on_wifi_event(
     }
 }
 
+/// Runs on `sys-evt` task, has barely any stack, be careful
 unsafe extern "C" fn on_ip_event(
     _: *mut c_void,
     _: sys::esp_event_base_t,

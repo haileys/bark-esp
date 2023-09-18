@@ -1,6 +1,5 @@
-use core::alloc::Layout;
 use core::ffi::c_void;
-use core::mem;
+use core::mem::{self, size_of};
 use core::ops::{Deref, DerefMut};
 use core::ptr::NonNull;
 use esp_idf_sys as sys;
@@ -13,13 +12,7 @@ pub struct MallocError {
 
 /// Allocates uninitialized memory to fit a `T`
 pub fn alloc<T>() -> Result<NonNull<T>, MallocError> {
-    unsafe {
-        alloc_layout(Layout::new::<T>())
-    }
-}
-
-pub unsafe fn alloc_layout<T>(layout: Layout) -> Result<NonNull<T>, MallocError> {
-    let bytes = layout.size();
+    let bytes = size_of::<T>();
 
     bytes.try_into()
         .map(|bytes| match bytes {
@@ -34,7 +27,7 @@ pub unsafe fn alloc_layout<T>(layout: Layout) -> Result<NonNull<T>, MallocError>
 
 /// Frees underlying allocation without calling [`Drop::drop`] on `ptr`
 pub unsafe fn free<T>(ptr: NonNull<T>) {
-    if ptr != setinel() {
+    if size_of::<T>() != 0 {
         unsafe { sys::free(ptr.cast::<c_void>().as_ptr()); }
     }
 }
@@ -119,10 +112,8 @@ impl<T> DerefMut for HeapBox<T> {
 }
 
 unsafe fn drop_free<T>(ptr: NonNull<T>) {
-    if ptr != setinel() {
-        core::ptr::drop_in_place(ptr.as_ptr());
-        free(ptr);
-    }
+    core::ptr::drop_in_place(ptr.as_ptr());
+    free(ptr);
 }
 
 impl<T> Drop for HeapBox<T> {

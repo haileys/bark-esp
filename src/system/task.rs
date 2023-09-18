@@ -99,6 +99,7 @@ macro_rules! print_task {
     }
 }
 
+#[allow(unused)]
 pub fn log_tasks() {
     let tasks = get_tasks();
 
