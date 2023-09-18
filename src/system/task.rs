@@ -65,9 +65,17 @@ impl TaskBuilder {
             let boxed_main = HeapBox::from_raw(boxed_main);
             let main = HeapBox::into_inner(boxed_main);
             main();
+
+            let name = CStr::from_ptr(sys::pcTaskGetName(ptr::null_mut()));
+            log::info!("Task exited: {}", name.to_str().unwrap());
+
+            sys::vTaskDelete(ptr::null_mut());
+            unreachable!();
         }
 
         let boxed_main_ptr = HeapBox::into_raw(boxed_main);
+
+        log::info!("Spawning task: {}", self.name.to_str().unwrap());
 
         let rc = unsafe {
             sys::xTaskCreatePinnedToCore(
