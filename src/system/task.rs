@@ -1,6 +1,7 @@
 use core::ffi::{CStr, c_void};
 use core::fmt::{Display, self};
 use core::ptr::{self, NonNull};
+use core::time::Duration;
 
 use ascii::AsciiStr;
 use derive_more::From;
@@ -11,13 +12,14 @@ use heapless::Vec;
 use super::heap::{HeapBox, MallocError};
 
 const MAX_TASKS: usize = 32;
-const DEFAULT_STACK_SIZE: usize = 8192;
+const DEFAULT_STACK_SIZE: u32 = 8192;
 const DEFAULT_PRIORITY: u32 = 0;
+const TICKS_PER_SECOND: u32 = 1000;
 
 #[must_use = "must call TaskBuilder::spawn to actually create task"]
 pub struct TaskBuilder {
     name: &'static CStr,
-    stack_bytes: usize,
+    stack_bytes: u32,
     priority: u32,
     core: i32,
 }
@@ -31,6 +33,11 @@ pub fn new(name: &'static CStr) -> TaskBuilder {
     }
 }
 
+pub fn delay(duration: Duration) {
+    let duration = duration.as_millis() as u32 * TICKS_PER_SECOND / 1000;
+    unsafe { sys::vTaskDelay(duration); }
+}
+
 #[derive(Debug, From)]
 pub enum SpawnError {
     AllocateClosure(MallocError),
@@ -40,7 +47,7 @@ pub enum SpawnError {
 impl TaskBuilder {
     #[allow(unused)]
     pub fn stack_size(mut self, bytes: usize) -> Self {
-        self.stack_bytes = bytes;
+        self.stack_bytes = bytes as u32;
         self
     }
 
@@ -58,7 +65,6 @@ impl TaskBuilder {
 
     pub fn spawn<F: FnOnce() + Send + 'static>(self, main: F) -> Result<(), SpawnError> {
         let boxed_main = HeapBox::alloc(main)?;
-        let stack_words = self.stack_bytes;// / mem::size_of::<usize>();
 
         unsafe extern "C" fn start<F: FnOnce() + Send + 'static>(param: *mut c_void) {
             let boxed_main = NonNull::new_unchecked(param).cast::<F>();
@@ -81,7 +87,7 @@ impl TaskBuilder {
             sys::xTaskCreatePinnedToCore(
                 Some(start::<F>),
                 self.name.as_ptr(),
-                stack_words as u32,
+                self.stack_bytes,
                 boxed_main_ptr.cast::<c_void>().as_ptr(),
                 self.priority,
                 ptr::null_mut(),

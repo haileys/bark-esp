@@ -1,4 +1,4 @@
-use core::sync::atomic::Ordering;
+use core::{sync::atomic::Ordering, net::Ipv4Addr};
 use core::mem::MaybeUninit;
 use core::ffi::c_void;
 use core::ptr;

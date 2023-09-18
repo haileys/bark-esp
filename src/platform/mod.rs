@@ -3,11 +3,23 @@ use core::sync::atomic::Ordering;
 use bitflags::bitflags;
 use cstr::cstr;
 
-use crate::{sync::EventGroup, system::task};
+use crate::platform::wifi::WifiState;
+use crate::sync::EventGroup;
+use crate::system::task;
 
 pub mod eventloop;
+pub mod net;
 pub mod nvs;
 pub mod wifi;
+
+bitflags! {
+    #[derive(Clone, Copy)]
+    pub struct PlatformEvent: u32 {
+        const WIFI    = 1 << 0;
+    }
+}
+
+static EVENT: EventGroup<PlatformEvent> = EventGroup::declare();
 
 pub unsafe fn init() {
     EVENT.init_with(PlatformEvent::empty());
@@ -20,15 +32,6 @@ pub unsafe fn init() {
         .spawn(platform_task)
         .expect("spawn platform task");
 }
-
-bitflags! {
-    #[derive(Clone, Copy)]
-    pub struct PlatformEvent: u32 {
-        const WIFI    = 1 << 0;
-    }
-}
-
-static EVENT: EventGroup<PlatformEvent> = EventGroup::declare();
 
 pub fn raise_event(event: PlatformEvent) {
     EVENT.set(event);
@@ -46,5 +49,11 @@ fn platform_task() {
 
 fn on_wifi_event() {
     let state = wifi::STATE.load(Ordering::SeqCst);
-    log::info!("Wifi event! current wifi state: {state:?}")
+    log::info!("Wifi event! current wifi state: {state:?}");
+
+    match state {
+        WifiState::Online => { crate::app::start(); }
+        WifiState::Disconnected => { crate::app::stop(); }
+        _ => {}
+    }
 }

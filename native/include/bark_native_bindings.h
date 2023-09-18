@@ -3,6 +3,14 @@
 #include "freertos/event_groups.h"
 #include "freertos/semphr.h"
 
+#include "lwip/err.h"
+#include "lwip/igmp.h"
+#include "lwip/ip_addr.h"
+#include "lwip/udp.h"
+
+#include "esp_netif.h"
+#include "esp_netif_net_stack.h"
+
 SemaphoreHandle_t bark_create_recursive_mutex();
 void bark_lock_recursive_mutex(SemaphoreHandle_t sema);
 void bark_unlock_recursive_mutex(SemaphoreHandle_t sema);

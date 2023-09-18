@@ -2,7 +2,9 @@
 #![no_main]
 #![feature(sync_unsafe_cell)]
 #![feature(type_alias_impl_trait)]
+#![feature(ip_in_core)]
 
+mod app;
 mod platform;
 mod sync;
 mod system;
@@ -14,6 +16,4 @@ pub unsafe extern "C" fn app_main() {
 
     platform::init();
     log::info!("Platform initialized");
-
-    system::task::log_tasks();
 }
