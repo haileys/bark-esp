@@ -15,11 +15,11 @@ opt-level = "z"
 
 [dependencies]
 ascii = { version = "1.1.0", default-features = false }
+atomic_enum = "0.2.0"
 bitflags = { version = "2.4.0", features = [] }
 critical-section = "1.1.2"
 cstr = "0.2.11"
 derive_more = { version = "0.99.17" }
-embassy-executor = { git = "https://github.com/haileys/embassy", features = ["executor-thread", "arch-xtensa", "nightly"] }
 esp-idf-svc = { version = "0.46", default-features = false }
 esp-idf-sys = { version = "0.33", default-features = false, features = ["native"] }
 esp-println = { version = "0.6.0", default-features = false, features = ["esp32", "uart"] }
@@ -32,8 +32,9 @@ static_assertions = "1.1.0"
 
 [patch.crates-io]
 embuild = { git = "https://github.com/haileys/embuild" }
-# esp-idf-sys = { git = "https://github.com/haileys/esp-idf-sys" }
-esp-idf-sys = { path = "../esp-idf-sys" }
+esp-idf-sys = { git = "https://github.com/haileys/esp-idf-sys" }
+# embuild = { path = "../embuild" }
+# esp-idf-sys = { path = "../esp-idf-sys" }
 
 # esp-idf-hal = { version = "0.41", optional = true, default-features = false }
 # embedded-svc = { version = "0.25", optional = true, default-features = false }

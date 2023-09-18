@@ -1,8 +1,11 @@
+use core::sync::atomic::Ordering;
+use core::mem::MaybeUninit;
+use core::ffi::c_void;
+
+use atomic_enum::atomic_enum;
 use esp_idf_sys::{self as sys, EspError};
 
-use crate::system;
-use crate::sync::signal::Signal;
-use super::event::{self, EventHandler, AttachHandlerError};
+use crate::platform::{self, PlatformEvent};
 
 const SSID: &str = env!("BARK_WIFI_SSID");
 const PASSWORD: &str = env!("BARK_WIFI_PASS");
@@ -16,38 +19,18 @@ const DYNAMIC_TX_BUF_COUNT: i32 = 10;
 // disable AMPDU, not suitable for realtime networking apparently
 const AMPDU_ENABLE: i32 = 0;
 
-#[derive(Clone, Copy, PartialEq)]
-enum WifiState {
+#[atomic_enum]
+pub enum WifiState {
     Uninit,
     Started,
-    Stopped,
+    Online,
+    Disconnected,
 }
 
-static WIFI_STATE: Signal<WifiState> = Signal::new(WifiState::Uninit);
+pub static STATE: AtomicWifiState = AtomicWifiState::new(WifiState::Uninit);
 
-#[embassy_executor::task]
-async fn wifi_task() {
-    log::info!("Starting wifi task");
-    let mut state = WIFI_STATE.watch().unwrap();
-
-    loop {
-        match state.wait().await {
-            WifiState::Uninit => {
-                log::info!("Starting wifi...");
-                unsafe { start_wifi(); }
-            }
-            WifiState::Started => {
-                log::info!("station started");
-            }
-            WifiState::Stopped => {
-                log::info!("station started");
-            }
-        }
-    }
-}
-
-pub fn init() {
-    system::rt::spawner().must_spawn(wifi_task());
+pub unsafe fn init() {
+    start_wifi();
 }
 
 unsafe fn start_wifi() {
@@ -76,6 +59,16 @@ unsafe fn start_wifi() {
         magic: sys::WIFI_INIT_CONFIG_MAGIC as i32,
     };
 
+    if let Err(e) = sys::esp!(sys::esp_netif_init()) {
+        log::error!("esp_netif_init failed: {e:?}");
+        return;
+    }
+
+    if sys::esp_netif_create_default_wifi_sta() == core::ptr::null_mut() {
+        log::error!("esp_netif_create_default_wifi_sta failed");
+        return;
+    }
+
     if let Err(e) = sys::esp!(sys::esp_wifi_init(&config)) {
         log::error!("esp_wifi_init failed: {e:?}");
         return;
@@ -86,12 +79,14 @@ unsafe fn start_wifi() {
         return;
     }
 
-    match handle_events() {
-        Ok(handler) => handler.leak(),
-        Err(e) => {
-            log::error!("failed to register event handler: {e:?}");
-            return;
-        }
+    if let Err(e) = attach_event(sys::WIFI_EVENT, on_wifi_event) {
+        log::error!("attach wifi event failed: {e:?}");
+        return;
+    }
+
+    if let Err(e) = attach_event(sys::IP_EVENT, on_ip_event) {
+        log::error!("attach ip event failed: {e:?}");
+        return;
     }
 
     if let Err(e) = configure() {
@@ -160,18 +155,57 @@ fn fixed<const N: usize>(s: &str) -> [u8; N] {
     buff
 }
 
-fn handle_events() -> Result<EventHandler, AttachHandlerError> {
-    let wifi_event = unsafe { sys::WIFI_EVENT };
+type EventHandlerFunc = unsafe extern "C" fn(
+    *mut c_void,
+    sys::esp_event_base_t,
+    i32,
+    *mut c_void,
+);
 
-    event::attach(wifi_event, |msg, _data| {
-        match msg as u32 {
-            sys::wifi_event_t_WIFI_EVENT_STA_START => {
-                WIFI_STATE.set(WifiState::Started);
-            }
-            sys::wifi_event_t_WIFI_EVENT_STA_DISCONNECTED => {
-                WIFI_STATE.set(WifiState::Stopped);
-            }
-            _ => {}
+unsafe fn attach_event(event: sys::esp_event_base_t, handler: EventHandlerFunc) -> Result<(), EspError> {
+    let mut instance = MaybeUninit::uninit();
+
+    sys::esp!(sys::esp_event_handler_instance_register(
+        event,
+        sys::ESP_EVENT_ANY_ID,
+        Some(handler),
+        core::ptr::null_mut(),
+        instance.as_mut_ptr(),
+    ))?;
+
+    Ok(())
+}
+
+unsafe extern "C" fn on_wifi_event(
+    _: *mut c_void,
+    _: sys::esp_event_base_t,
+    msg: i32,
+    _param: *mut c_void,
+) {
+    match msg as u32 {
+        sys::wifi_event_t_WIFI_EVENT_STA_START => {
+            STATE.store(WifiState::Started, Ordering::SeqCst);
+            platform::raise_event(PlatformEvent::WIFI);
         }
-    })
+        sys::wifi_event_t_WIFI_EVENT_STA_DISCONNECTED => {
+            STATE.store(WifiState::Disconnected, Ordering::SeqCst);
+            platform::raise_event(PlatformEvent::WIFI);
+        }
+        _ => {}
+    }
+}
+
+unsafe extern "C" fn on_ip_event(
+    _: *mut c_void,
+    _: sys::esp_event_base_t,
+    msg: i32,
+    _param: *mut c_void,
+) {
+    match msg as u32 {
+        sys::ip_event_t_IP_EVENT_STA_GOT_IP => {
+            STATE.store(WifiState::Online, Ordering::SeqCst);
+            platform::raise_event(PlatformEvent::WIFI);
+        }
+        _ => {}
+    }
 }

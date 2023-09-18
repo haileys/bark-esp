@@ -63,11 +63,11 @@ impl TaskBuilder {
         unsafe extern "C" fn start<F: FnOnce() + Send + 'static>(param: *mut c_void) {
             let boxed_main = NonNull::new_unchecked(param).cast::<F>();
             let boxed_main = HeapBox::from_raw(boxed_main);
-            let main = boxed_main.into_inner();
+            let main = HeapBox::into_inner(boxed_main);
             main();
         }
 
-        let boxed_main_ptr = boxed_main.into_raw();
+        let boxed_main_ptr = HeapBox::into_raw(boxed_main);
 
         let rc = unsafe {
             sys::xTaskCreatePinnedToCore(

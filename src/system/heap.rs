@@ -1,6 +1,7 @@
 use core::alloc::Layout;
 use core::ffi::c_void;
 use core::mem;
+use core::ops::{Deref, DerefMut};
 use core::ptr::NonNull;
 use esp_idf_sys as sys;
 
@@ -57,23 +58,16 @@ impl<T> HeapBox<T> {
         Ok(HeapBox { ptr })
     }
 
-    pub fn as_mut_ptr(&self) -> *mut T {
-        self.ptr.as_ptr()
-    }
-
-    pub fn as_ref(&self) -> &T {
-        unsafe { self.ptr.as_ref() }
-    }
-
-    pub fn as_mut(&mut self) -> &mut T {
-        unsafe { self.ptr.as_mut() }
+    #[allow(unused)]
+    pub fn as_borrowed_mut_ptr(box_: &HeapBox<T>) -> *mut T {
+        box_.ptr.as_ptr()
     }
 
     /// Move ownership into a raw pointer
-    pub fn into_raw(self) -> NonNull<T> {
-        let ptr = self.ptr;
+    pub fn into_raw(box_: HeapBox<T>) -> NonNull<T> {
+        let ptr = box_.ptr;
         // don't drop self:
-        mem::forget(self);
+        mem::forget(box_);
         ptr
     }
 
@@ -82,8 +76,8 @@ impl<T> HeapBox<T> {
         HeapBox { ptr }
     }
 
-    pub fn into_inner(self) -> T {
-        let inner_ptr = self.into_raw();
+    pub fn into_inner(box_: HeapBox<T>) -> T {
+        let inner_ptr = HeapBox::into_raw(box_);
 
         // read value
         let inner = unsafe { core::ptr::read(inner_ptr.as_ptr()) };
@@ -94,7 +88,8 @@ impl<T> HeapBox<T> {
         inner
     }
 
-    pub fn erase_type(self) -> UntypedHeapBox {
+    #[allow(unused)]
+    pub fn erase_type(box_: HeapBox<T>) -> UntypedHeapBox {
         type TypedDrop<T> = unsafe fn(NonNull<T>);
         type UntypedDrop = unsafe fn(NonNull<()>);
 
@@ -103,9 +98,23 @@ impl<T> HeapBox<T> {
         };
 
         UntypedHeapBox {
-            ptr: self.ptr.cast(),
+            ptr: box_.ptr.cast(),
             drop,
         }
+    }
+}
+
+impl<T> Deref for HeapBox<T> {
+    type Target = T;
+
+    fn deref(&self) -> &T {
+        unsafe { self.ptr.as_ref() }
+    }
+}
+
+impl<T> DerefMut for HeapBox<T> {
+    fn deref_mut(&mut self) -> &mut T {
+        unsafe { self.ptr.as_mut() }
     }
 }
 

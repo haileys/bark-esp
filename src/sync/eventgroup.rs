@@ -53,6 +53,7 @@ impl<T: Flags<Bits = u32> + Copy> EventGroup<T> {
         }
     }
 
+    #[allow(unused)]
     pub fn wait_all(&self, flags: T) {
         loop {
             let set = unsafe {
@@ -65,16 +66,18 @@ impl<T: Flags<Bits = u32> + Copy> EventGroup<T> {
         }
     }
 
-    #[allow(unused)]
-    pub fn wait_any(&self, flags: T) {
+    pub fn wait_for_any_and_clear(&self, flags: T) -> T {
         loop {
             let set = unsafe {
-                sys::xEventGroupWaitBits(self.handle(), flags.bits(), 0, 0, 1000)
+                sys::xEventGroupWaitBits(self.handle(), flags.bits(), 1, 0, 1000)
             };
 
-            if !T::from_bits_truncate(set).intersection(flags).is_empty() {
-                return;
+            if set == 0 {
+                // timed out, go again:
+                continue;
             }
+
+            return T::from_bits_truncate(set);
         }
     }
 }
