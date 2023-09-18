@@ -1,15 +1,37 @@
 use core::ffi::c_void;
 use core::sync::atomic::{AtomicBool, Ordering};
 
+use bitflags::bitflags;
 use derive_more::From;
 use esp_idf_sys as sys;
 
+use crate::system::eventgroup::EventGroup;
 use super::event::{self, EventHandler, AttachHandlerError};
 
+static EVENT_GROUP: EventGroup<NetworkFlags> = EventGroup::declare();
+
 pub unsafe fn init() {
+    EVENT_GROUP.init_with(NetworkFlags::empty());
+
     if let Err(e) = sys::esp!(sys::esp_netif_init()) {
         log::error!("esp_netif_init failed: {e:?}");
     }
+
+    // if let Err(e) = task::new(cstr!("bark-network")).spawn(network_task) {
+    //     log::error!("failed to spawn network task: {e:?}");
+    // }
+}
+
+bitflags! {
+    #[derive(Clone, Copy)]
+    struct NetworkFlags: u32 {
+        const HAVE_IP = 1 << 0;
+    }
+}
+
+fn network_task() {
+    EVENT_GROUP.wait_all(NetworkFlags::HAVE_IP);
+    log::info!("Got IP!");
 }
 
 static DEFAULT_NETIF_EXIST: AtomicBool = AtomicBool::new(false);
@@ -43,7 +65,7 @@ fn handle_events(_: NetifPtr) -> Result<EventHandler, AttachHandlerError> {
     event::attach(ip_event, |message, _data| {
         match message as u32 {
             sys::ip_event_t_IP_EVENT_STA_GOT_IP => {
-                log::info!("Got IP!");
+                EVENT_GROUP.set(NetworkFlags::HAVE_IP);
             }
             _ => {}
         }

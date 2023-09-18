@@ -15,13 +15,20 @@ opt-level = "z"
 
 [dependencies]
 ascii = { version = "1.1.0", default-features = false }
+bitflags = { version = "2.4.0", features = [] }
+critical-section = "1.1.2"
 cstr = "0.2.11"
 derive_more = { version = "0.99.17" }
+embassy-executor = { git = "https://github.com/haileys/embassy", features = ["executor-thread", "arch-xtensa", "nightly"] }
 esp-idf-svc = { version = "0.46", default-features = false }
 esp-idf-sys = { version = "0.33", default-features = false, features = ["native"] }
 esp-println = { version = "0.6.0", default-features = false, features = ["esp32", "uart"] }
+field-offset = "0.3.6"
+futures = { version = "0.3.28", default-features = false }
 heapless = { version = "0.7.16", default-features = false }
 log = { version = "0.4.17", default-features = false }
+pin-project = "1.1.3"
+static_assertions = "1.1.0"
 
 [patch.crates-io]
 embuild = { git = "https://github.com/haileys/embuild" }
@@ -34,6 +41,6 @@ esp-idf-sys = { path = "../esp-idf-sys" }
 [build-dependencies]
 embuild = "0.31.2"
 
-# [[package.metadata.esp-idf-sys.extra_components]]
-# component_dirs = ["vendor/esp-idf/components/esp_wifi"]
-# bindings_header = "bindings.h"
+[[package.metadata.esp-idf-sys.extra_components]]
+component_dirs = ["native"]
+bindings_header = "native/include/bark_native_bindings.h"

@@ -1,15 +1,12 @@
-pub mod event;
-pub mod eventloop;
+pub mod eventgroup;
 pub mod heap;
 pub mod log;
 pub mod logo;
-// pub mod macros;
-pub mod network;
-pub mod nvs;
 pub mod panic;
+pub mod rt;
+pub mod sema;
 pub mod task;
 pub mod uart;
-pub mod wifi;
 
 /// Call once only
 pub unsafe fn init() {
@@ -17,10 +14,12 @@ pub unsafe fn init() {
     uart::init_uart0();
     log::init();
 
-    esp_println::print!("{}", logo::LOGO);
+    // then sync primitives
+    crate::sync::signal::init();
 
-    eventloop::init();
-    nvs::init();
-    wifi::init();
-    network::init();
+    // then runtime
+    rt::init();
+
+    // say hello :)
+    esp_println::print!("{}", logo::LOGO);
 }

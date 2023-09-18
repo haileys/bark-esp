@@ -1,6 +1,8 @@
-use esp_idf_sys as sys;
-use sys::EspError;
-use super::event::{EventHandler, self, AttachHandlerError};
+use esp_idf_sys::{self as sys, EspError};
+
+use crate::system;
+use crate::sync::signal::Signal;
+use super::event::{self, EventHandler, AttachHandlerError};
 
 const SSID: &str = env!("BARK_WIFI_SSID");
 const PASSWORD: &str = env!("BARK_WIFI_PASS");
@@ -14,7 +16,41 @@ const DYNAMIC_TX_BUF_COUNT: i32 = 10;
 // disable AMPDU, not suitable for realtime networking apparently
 const AMPDU_ENABLE: i32 = 0;
 
-pub unsafe fn init() {
+#[derive(Clone, Copy, PartialEq)]
+enum WifiState {
+    Uninit,
+    Started,
+    Stopped,
+}
+
+static WIFI_STATE: Signal<WifiState> = Signal::new(WifiState::Uninit);
+
+#[embassy_executor::task]
+async fn wifi_task() {
+    log::info!("Starting wifi task");
+    let mut state = WIFI_STATE.watch().unwrap();
+
+    loop {
+        match state.wait().await {
+            WifiState::Uninit => {
+                log::info!("Starting wifi...");
+                unsafe { start_wifi(); }
+            }
+            WifiState::Started => {
+                log::info!("station started");
+            }
+            WifiState::Stopped => {
+                log::info!("station started");
+            }
+        }
+    }
+}
+
+pub fn init() {
+    system::rt::spawner().must_spawn(wifi_task());
+}
+
+unsafe fn start_wifi() {
     let config = sys::wifi_init_config_t {
         osi_funcs: &sys::g_wifi_osi_funcs as *const _ as *mut _,
         wpa_crypto_funcs: sys::g_wifi_default_wpa_crypto_funcs,
@@ -28,7 +64,7 @@ pub unsafe fn init() {
         ampdu_rx_enable: AMPDU_ENABLE,
         ampdu_tx_enable: AMPDU_ENABLE,
         amsdu_tx_enable: AMPDU_ENABLE,
-        nvs_enable: 1,
+        nvs_enable: 0,
         nano_enable: sys::WIFI_NANO_FORMAT_ENABLED as i32,
         rx_ba_win: sys::WIFI_DEFAULT_RX_BA_WIN as i32,
         wifi_task_core_id: 0, // main core
@@ -66,8 +102,8 @@ pub unsafe fn init() {
         log::error!("esp_wifi_start failed: {e:?}");
     }
 
-    if let Err(e) = sys::esp!(sys::esp_wifi_start()) {
-        log::error!("esp_wifi_start failed: {e:?}");
+    if let Err(e) = sys::esp!(sys::esp_wifi_connect()) {
+        log::error!("esp_wifi_connect failed: {e:?}");
     }
 }
 
@@ -130,18 +166,12 @@ fn handle_events() -> Result<EventHandler, AttachHandlerError> {
     event::attach(wifi_event, |msg, _data| {
         match msg as u32 {
             sys::wifi_event_t_WIFI_EVENT_STA_START => {
-                log::info!("station_start");
-                let result = unsafe { sys::esp!(sys::esp_wifi_connect()) };
-                if let Err(e) = result {
-                    log::error!("esp_wifi_connect failed: {e:?}");
-                }
+                WIFI_STATE.set(WifiState::Started);
             }
             sys::wifi_event_t_WIFI_EVENT_STA_DISCONNECTED => {
-                log::info!("station_disconnected");
+                WIFI_STATE.set(WifiState::Stopped);
             }
-            _ => {
-                log::debug!("unknown wifi event: {msg}")
-            }
+            _ => {}
         }
     })
 }

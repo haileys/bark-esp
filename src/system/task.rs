@@ -1,13 +1,97 @@
-use core::ffi::CStr;
+use core::ffi::{CStr, c_void};
 use core::fmt::{Display, self};
-use core::ptr;
+use core::ptr::{self, NonNull};
 
 use ascii::AsciiStr;
-use esp_idf_sys::{TaskStatus_t, uxTaskGetSystemState, eTaskState, tskNO_AFFINITY};
-use heapless::Vec;
+use derive_more::From;
+use esp_idf_sys as sys;
 use esp_println::{println, print};
+use heapless::Vec;
 
-const MAX_TASKS: usize = 16;
+use super::heap::{HeapBox, MallocError};
+
+const MAX_TASKS: usize = 32;
+const DEFAULT_STACK_SIZE: usize = 8192;
+const DEFAULT_PRIORITY: u32 = 0;
+
+#[must_use = "must call TaskBuilder::spawn to actually create task"]
+pub struct TaskBuilder {
+    name: &'static CStr,
+    stack_bytes: usize,
+    priority: u32,
+    core: i32,
+}
+
+pub fn new(name: &'static CStr) -> TaskBuilder {
+    TaskBuilder {
+        name,
+        stack_bytes: DEFAULT_STACK_SIZE,
+        priority: DEFAULT_PRIORITY,
+        core: 0,
+    }
+}
+
+#[derive(Debug, From)]
+pub enum SpawnError {
+    AllocateClosure(MallocError),
+    TaskCreateError,
+}
+
+impl TaskBuilder {
+    #[allow(unused)]
+    pub fn stack_size(mut self, bytes: usize) -> Self {
+        self.stack_bytes = bytes;
+        self
+    }
+
+    #[allow(unused)]
+    pub fn priority(mut self, priority: u32) -> Self {
+        self.priority = priority;
+        self
+    }
+
+    #[allow(unused)]
+    pub fn use_alternate_core(mut self) -> Self {
+        self.core = 1;
+        self
+    }
+
+    pub fn spawn<F: FnOnce() + Send + 'static>(self, main: F) -> Result<(), SpawnError> {
+        let boxed_main = HeapBox::alloc(main)?;
+        let stack_words = self.stack_bytes;// / mem::size_of::<usize>();
+
+        unsafe extern "C" fn start<F: FnOnce() + Send + 'static>(param: *mut c_void) {
+            let boxed_main = NonNull::new_unchecked(param).cast::<F>();
+            let boxed_main = HeapBox::from_raw(boxed_main);
+            let main = boxed_main.into_inner();
+            main();
+        }
+
+        let boxed_main_ptr = boxed_main.into_raw();
+
+        let rc = unsafe {
+            sys::xTaskCreatePinnedToCore(
+                Some(start::<F>),
+                self.name.as_ptr(),
+                stack_words as u32,
+                boxed_main_ptr.cast::<c_void>().as_ptr(),
+                self.priority,
+                ptr::null_mut(),
+                self.core,
+            )
+        };
+
+        if rc == 1 {
+            Ok(())
+        } else {
+            // if the task failed to spawn, there's nobody to receive
+            // ownership of boxed_main, so we need to take it back
+            let _boxed_main = unsafe { HeapBox::from_raw(boxed_main_ptr) };
+
+            Err(SpawnError::TaskCreateError)
+        }
+    }
+}
 
 macro_rules! print_task {
     ( $($expr:tt)* ) => {
@@ -51,8 +135,8 @@ fn get_tasks() -> Vec<TaskStatus, MAX_TASKS> {
     // pointer in TaskStatus_t, and if the task gets deleted this could be a
     // use after free. I actually don't know how to make it safe. shrug
     unsafe {
-        let ntasks = uxTaskGetSystemState(
-            tasks.as_mut_ptr() as *mut TaskStatus_t,
+        let ntasks = sys::uxTaskGetSystemState(
+            tasks.as_mut_ptr() as *mut sys::TaskStatus_t,
             tasks.capacity() as u32,
             ptr::null_mut(),
         );
@@ -68,7 +152,7 @@ fn get_tasks() -> Vec<TaskStatus, MAX_TASKS> {
 }
 
 #[repr(transparent)]
-struct TaskStatus(TaskStatus_t);
+struct TaskStatus(sys::TaskStatus_t);
 
 impl TaskStatus {
     pub fn id(&self) -> u32 {
@@ -82,7 +166,7 @@ impl TaskStatus {
     pub fn affinity(&self) -> CoreAffinity {
         let core_id = self.0.xCoreID as u32;
 
-        if core_id == tskNO_AFFINITY {
+        if core_id == sys::tskNO_AFFINITY {
             CoreAffinity::Any
         } else {
             CoreAffinity::Pinned(core_id)
@@ -142,12 +226,12 @@ impl From<i32> for CoreAffinity {
 #[derive(Copy, Clone)]
 #[repr(u32)]
 enum TaskState {
-    Ready = esp_idf_sys::eTaskState_eReady,
-    Running = esp_idf_sys::eTaskState_eRunning,
-    Blocked = esp_idf_sys::eTaskState_eBlocked,
-    Suspended = esp_idf_sys::eTaskState_eSuspended,
-    Deleted = esp_idf_sys::eTaskState_eDeleted,
-    Invalid = esp_idf_sys::eTaskState_eInvalid,
+    Ready     = sys::eTaskState_eReady,
+    Running   = sys::eTaskState_eRunning,
+    Blocked   = sys::eTaskState_eBlocked,
+    Suspended = sys::eTaskState_eSuspended,
+    Deleted   = sys::eTaskState_eDeleted,
+    Invalid   = sys::eTaskState_eInvalid,
 }
 
 impl Display for TaskState {
@@ -165,14 +249,14 @@ impl Display for TaskState {
     }
 }
 
-impl From<eTaskState> for TaskState {
-    fn from(value: eTaskState) -> Self {
+impl From<sys::eTaskState> for TaskState {
+    fn from(value: sys::eTaskState) -> Self {
         match value {
-            esp_idf_sys::eTaskState_eReady => TaskState::Ready,
-            esp_idf_sys::eTaskState_eRunning => TaskState::Running,
-            esp_idf_sys::eTaskState_eBlocked => TaskState::Blocked,
-            esp_idf_sys::eTaskState_eSuspended => TaskState::Suspended,
-            esp_idf_sys::eTaskState_eDeleted => TaskState::Deleted,
+            sys::eTaskState_eReady     => TaskState::Ready,
+            sys::eTaskState_eRunning   => TaskState::Running,
+            sys::eTaskState_eBlocked   => TaskState::Blocked,
+            sys::eTaskState_eSuspended => TaskState::Suspended,
+            sys::eTaskState_eDeleted   => TaskState::Deleted,
             _ => TaskState::Invalid,
         }
     }

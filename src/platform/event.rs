@@ -1,11 +1,16 @@
-use core::mem::MaybeUninit;
+use core::{mem::MaybeUninit, ffi::CStr};
 use core::ffi::c_void;
 
 use derive_more::From;
 use esp_idf_sys as sys;
 use sys::EspError;
 
-use super::heap::{HeapBox, MallocError, UntypedHeapBox};
+use crate::system::heap::{HeapBox, MallocError, UntypedHeapBox};
+
+pub trait Event: Sized {
+    unsafe fn event_base() -> sys::esp_event_base_t;
+    unsafe fn from_raw(id: u32, data: *mut c_void) -> Option<Self>;
+}
 
 pub struct EventHandler {
     event_base: sys::esp_event_base_t,
@@ -45,13 +50,18 @@ pub fn attach<F: FnMut(i32, *mut c_void) + 'static>(
         instance.assume_init()
     };
 
-    log::info!("Attached event");
+    log::info!("Attached handler for event {}",
+        event_base_as_str(event_base));
 
     Ok(EventHandler {
         event_base,
         instance,
         _handler: handler.erase_type(),
     })
+}
+
+fn event_base_as_str(event_base: sys::esp_event_base_t) -> &'static str {
+    unsafe { CStr::from_ptr(event_base) }.to_str().unwrap_or_default()
 }
 
 /// SAFETY: must only called by event loop so mut refs don't alias
@@ -75,7 +85,8 @@ impl Drop for EventHandler {
                 self.instance,
             );
 
-            log::info!("Unregistered event");
+            log::info!("Detached handler for event {}",
+                event_base_as_str(self.event_base));
         }
     }
 }
