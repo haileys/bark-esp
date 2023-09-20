@@ -1,7 +1,7 @@
-use core::{sync::atomic::Ordering, net::Ipv4Addr};
-use core::mem::MaybeUninit;
 use core::ffi::c_void;
+use core::mem::MaybeUninit;
 use core::ptr;
+use core::sync::atomic::Ordering;
 
 use atomic_enum::atomic_enum;
 use esp_idf_sys::{self as sys, EspError};

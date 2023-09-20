@@ -1,6 +1,6 @@
-use core::sync::atomic::{AtomicPtr, Ordering, AtomicU32};
+use core::sync::atomic::{Ordering, AtomicU32};
 use core::ptr::{null_mut, NonNull};
-use core::task::{Context, Waker, RawWakerVTable, RawWaker};
+use core::task::{Context, Waker};
 
 use esp_idf_sys as sys;
 
@@ -59,7 +59,7 @@ fn wake_from_bitset(bitset: u32) {
         // see if its bit is set in this bitset:
         if (bitset & id.as_bit()) != 0 {
             // wake task if so
-
+            wake_id(id);
         }
     }
 }
@@ -121,7 +121,7 @@ mod waker_impl {
         }
     }
 
-    unsafe fn drop(data: *const ()) {
+    unsafe fn drop(_: *const ()) {
         // nothing to do here
         // we don't even need to keep track of wakers holding set bits for tasks
         // which have since finished, because spurious wakeups are safe!

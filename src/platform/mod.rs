@@ -1,3 +1,4 @@
+use core::pin::Pin;
 use core::sync::atomic::Ordering;
 
 use bitflags::bitflags;
@@ -22,7 +23,7 @@ bitflags! {
 static EVENT: EventGroup<PlatformEvent> = EventGroup::declare();
 
 pub unsafe fn init() {
-    EVENT.init_with(PlatformEvent::empty());
+    Pin::static_ref(&EVENT).init_with(PlatformEvent::empty());
 
     eventloop::init();
     nvs::init();
@@ -34,12 +35,13 @@ pub unsafe fn init() {
 }
 
 pub fn raise_event(event: PlatformEvent) {
-    EVENT.set(event);
+    Pin::static_ref(&EVENT).set(event);
 }
 
-fn platform_task() {
+async fn platform_task() {
     loop {
-        let events = EVENT.wait_for_any_and_clear(PlatformEvent::all());
+        let events = Pin::static_ref(&EVENT)
+            .wait_for_any_and_clear(PlatformEvent::all());
 
         if events.contains(PlatformEvent::WIFI) {
             on_wifi_event();

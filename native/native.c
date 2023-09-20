@@ -1,5 +1,9 @@
 #include "bark_native_bindings.h"
 
+__attribute__((constructor)) static void bark_ctor() {
+    printf("bark_ctor called!!\n");
+}
+
 SemaphoreHandle_t bark_create_recursive_mutex() {
     return xSemaphoreCreateRecursiveMutex();
 }

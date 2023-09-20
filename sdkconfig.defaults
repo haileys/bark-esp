@@ -19,3 +19,5 @@ CONFIG_LOG_DEFAULT_LEVEL=5
 # optional, can be turned off without compile error
 # uses more space in the binary but convenient:
 CONFIG_ESP_ERR_TO_NAME_LOOKUP=y
+
+CONFIG_LWIP_TCPIP_TASK_STACK_SIZE=8192

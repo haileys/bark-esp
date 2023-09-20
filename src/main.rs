@@ -3,6 +3,7 @@
 #![feature(sync_unsafe_cell)]
 #![feature(type_alias_impl_trait)]
 #![feature(ip_in_core)]
+#![feature(waker_getters)]
 
 mod app;
 mod platform;

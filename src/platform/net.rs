@@ -1,15 +1,18 @@
-use core::ffi::CStr;
 use core::ptr;
 use core::net::Ipv4Addr;
 
 use derive_more::From;
 use esp_idf_sys as sys;
 
+use crate::system::heap::MallocError;
+
+pub mod udp;
+
 pub fn join_multicast_group(group: Ipv4Addr) -> Result<(), NetError> {
     log::info!("Joining multicast group {group}");
 
     let netif = netif()?;
-    let addr = ip4_addr(group);
+    let addr = rust_to_esp_ipv4_addr(group);
 
     LwipError::check(unsafe {
         sys::igmp_joingroup_netif(netif, &addr)
@@ -18,11 +21,12 @@ pub fn join_multicast_group(group: Ipv4Addr) -> Result<(), NetError> {
     Ok(())
 }
 
+#[allow(unused)]
 pub fn leave_multicast_group(group: Ipv4Addr) -> Result<(), NetError> {
     log::info!("Joining multicast group {group}");
 
     let netif = netif()?;
-    let addr = ip4_addr(group);
+    let addr = rust_to_esp_ipv4_addr(group);
 
     LwipError::check(unsafe {
         sys::igmp_leavegroup_netif(netif, &addr)
@@ -31,7 +35,7 @@ pub fn leave_multicast_group(group: Ipv4Addr) -> Result<(), NetError> {
     Ok(())
 }
 
-fn ip4_addr(addr: Ipv4Addr) -> sys::ip4_addr {
+pub fn rust_to_esp_ipv4_addr(addr: Ipv4Addr) -> sys::ip4_addr {
     let octets = addr.octets();
 
     let addr = ((octets[3] as u32) << 24)
@@ -41,6 +45,17 @@ fn ip4_addr(addr: Ipv4Addr) -> sys::ip4_addr {
              ;
 
     sys::ip4_addr { addr }
+}
+
+pub fn esp_to_rust_ipv4_addr(addr: sys::ip4_addr) -> Ipv4Addr {
+    let addr = addr.addr;
+
+    let octet0 = ((addr >> 0) & 0xff) as u8;
+    let octet1 = ((addr >> 8) & 0xff) as u8;
+    let octet2 = ((addr >> 16) & 0xff) as u8;
+    let octet3 = ((addr >> 24) & 0xff) as u8;
+
+    Ipv4Addr::new(octet0, octet1, octet2, octet3)
 }
 
 fn netif() -> Result<*mut sys::netif, NetError> {
@@ -60,6 +75,8 @@ fn netif() -> Result<*mut sys::netif, NetError> {
 #[derive(Debug, From)]
 pub enum NetError {
     NoNetif,
+    NewSocket,
+    Alloc(MallocError),
     Lwip(LwipError),
 }
 
@@ -67,6 +84,7 @@ pub enum NetError {
 pub struct LwipError(i8);
 
 impl LwipError {
+    #[allow(unused)]
     pub fn code(&self) -> i8 {
         self.0
     }

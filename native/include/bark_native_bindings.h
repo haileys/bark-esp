@@ -2,14 +2,19 @@
 #include "freertos/task.h"
 #include "freertos/event_groups.h"
 #include "freertos/semphr.h"
+#include "freertos/portmacro.h"
+#include "freertos/stream_buffer.h"
 
 #include "lwip/err.h"
 #include "lwip/igmp.h"
 #include "lwip/ip_addr.h"
+#include "lwip/pbuf.h"
 #include "lwip/udp.h"
 
 #include "esp_netif.h"
 #include "esp_netif_net_stack.h"
+
+const TickType_t freertos_wait_forever = portMAX_DELAY;
 
 SemaphoreHandle_t bark_create_recursive_mutex();
 void bark_lock_recursive_mutex(SemaphoreHandle_t sema);

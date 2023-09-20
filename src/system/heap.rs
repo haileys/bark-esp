@@ -6,6 +6,9 @@ use esp_idf_sys as sys;
 pub mod boxed;
 pub use boxed::{HeapBox, UntypedHeapBox};
 
+// pub mod array;
+// pub use array::RawHeapArray;
+
 #[derive(Debug)]
 pub struct MallocError {
     #[allow(unused)]
@@ -14,7 +17,10 @@ pub struct MallocError {
 
 /// Allocates uninitialized memory to fit a `T`
 pub fn alloc<T>() -> Result<NonNull<T>, MallocError> {
-    let layout = Layout::new::<T>();
+    alloc_layout(Layout::new::<T>()).map(NonNull::cast)
+}
+
+pub fn alloc_layout(layout: Layout) -> Result<NonNull<c_void>, MallocError> {
     NonNull::new(unsafe { SYSTEM_MALLOC.alloc(layout) })
         .map(NonNull::cast)
         .ok_or(MallocError { bytes: layout.size() })
@@ -23,7 +29,11 @@ pub fn alloc<T>() -> Result<NonNull<T>, MallocError> {
 /// Frees underlying allocation without calling [`Drop::drop`] on `ptr`
 pub unsafe fn free<T>(ptr: NonNull<T>) {
     let layout = Layout::new::<T>();
-    unsafe { SYSTEM_MALLOC.dealloc(ptr.cast().as_ptr(), layout); }
+    free_layout(ptr.cast(), layout);
+}
+
+pub unsafe fn free_layout(ptr: NonNull<c_void>, layout: Layout) {
+    SYSTEM_MALLOC.dealloc(ptr.cast().as_ptr(), layout);
 }
 
 static SYSTEM_MALLOC: SystemMalloc = SystemMalloc;
