@@ -22,10 +22,8 @@ bitflags = { version = "2.4.0", features = [] }
 critical-section = "1.1.2"
 cstr = "0.2.11"
 derive_more = { version = "0.99.17" }
-esp-idf-svc = { version = "0.46", default-features = false }
 esp-idf-sys = { version = "0.33", default-features = false, features = ["native"] }
 esp-println = { version = "0.6.0", default-features = false, features = ["esp32", "uart"] }
-field-offset = "0.3.6"
 futures = { version = "0.3.28", default-features = false }
 heapless = { version = "0.7.16", default-features = false }
 log = { version = "0.4.17", default-features = false }
@@ -36,11 +34,6 @@ memoffset = "0.9.0"
 [patch.crates-io]
 embuild = { git = "https://github.com/haileys/embuild" }
 esp-idf-sys = { git = "https://github.com/haileys/esp-idf-sys" }
-# embuild = { path = "../embuild" }
-# esp-idf-sys = { path = "../esp-idf-sys" }
-
-# esp-idf-hal = { version = "0.41", optional = true, default-features = false }
-# embedded-svc = { version = "0.25", optional = true, default-features = false }
 
 [build-dependencies]
 embuild = "0.31.2"
