@@ -4,13 +4,17 @@ use core::net::SocketAddrV4;
 use core::ffi::c_void;
 use core::mem::ManuallyDrop;
 
+use bark_protocol::packet::Packet;
 use bitflags::bitflags;
 use esp_idf_sys as sys;
+
+use bark_protocol::buffer::PacketBuffer;
+use bark_protocol::buffer::pbuf as bark_pbuf;
 
 use crate::system::heap::{HeapBox, UntypedHeapBox, MallocError};
 use crate::sync::EventGroup;
 
-use super::{NetError, LwipError, esp_to_rust_ipv4_addr, rust_to_esp_ipv4_addr};
+use super::{NetError, LwipError, esp_to_rust_ipv4_addr, rust_to_esp_ipv4_addr, rust_to_esp_ip_addr};
 
 pub struct Udp {
     udp: UdpPtr,
@@ -56,11 +60,7 @@ impl Udp {
 
     pub fn bind(&mut self, addr: SocketAddrV4) -> Result<(), NetError> {
         let port = addr.port();
-
-        let ip4_addr = rust_to_esp_ipv4_addr(*addr.ip());
-        let mut ip_addr = sys::ip_addr::default();
-        ip_addr.u_addr.ip4 = ip4_addr;
-        ip_addr.type_ = sys::lwip_ip_addr_type_IPADDR_TYPE_V4 as u8;
+        let ip_addr = rust_to_esp_ip_addr(*addr.ip());
 
         Ok(unsafe {
             LwipError::check(sys::udp_bind(self.as_mut_ptr(), &ip_addr, port))?
@@ -96,7 +96,30 @@ impl Udp {
         }
     }
 
-    pub fn on_receive<F: FnMut(NonNull<sys::pbuf>, SocketAddrV4)>(&mut self, func: F) -> Result<(), MallocError> {
+    pub fn send_to(&mut self, buffer: &PacketBuffer, addr: SocketAddrV4) -> Result<(), NetError> {
+        let port = addr.port();
+        let ip_addr = rust_to_esp_ip_addr(*addr.ip());
+
+        let pbuf = buffer.underlying();
+
+        LwipError::check(unsafe {
+            let pbuf = pbuf.pbuf()
+                as *const bark_pbuf::ffi::pbuf
+                as *const sys::pbuf
+                as *mut sys::pbuf; // udp_sendto does not actually mutate packet
+
+            sys::udp_sendto(
+                self.as_mut_ptr(),
+                pbuf,
+                &ip_addr,
+                port,
+            )
+        })?;
+
+        Ok(())
+    }
+
+    pub fn on_receive<F: FnMut(PacketBuffer, SocketAddrV4)>(&mut self, func: F) -> Result<(), MallocError> {
         let eventgroup = self.eventgroup.as_ref().get_ref();
 
         let callback = HeapBox::alloc(HeapCallback {
@@ -104,7 +127,7 @@ impl Udp {
             func,
         })?;
 
-        unsafe extern "C" fn dispatch<F: FnMut(NonNull<sys::pbuf>, SocketAddrV4)>(
+        unsafe extern "C" fn dispatch<F: FnMut(PacketBuffer, SocketAddrV4)>(
             arg: *mut c_void,
             _pcb: *mut sys::udp_pcb,
             pbuf: *mut sys::pbuf,
@@ -123,15 +146,18 @@ impl Udp {
                 }
             }
 
-            let pbuf = NonNull::<sys::pbuf>::new_unchecked(pbuf);
-
             let addr = esp_to_rust_ipv4_addr((*addr).u_addr.ip4);
             let addr = SocketAddrV4::new(addr, port);
+
+            let pbuf = NonNull::new_unchecked(pbuf);
+            let pbuf = pbuf.cast::<bark_pbuf::ffi::pbuf>();
+            let pbuf = unsafe { bark_pbuf::BufferImpl::from_raw(pbuf) };
+            let buffer = PacketBuffer::from_underlying(pbuf);
 
             // call the callback
             {
                 let callback = callback.as_mut();
-                (callback.func)(pbuf, addr);
+                (callback.func)(buffer, addr);
             }
 
             // set flag indicating we're done

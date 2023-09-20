@@ -5,6 +5,11 @@ CONFIG_ESP_MAIN_TASK_STACK_SIZE=10000
 # This allows to use 1 ms granuality for thread sleeps (10 ms by default).
 CONFIG_FREERTOS_HZ=1000
 
+# use internal 8.5MHz oscillator for better frequency stability, the higher
+# draw (5uA according to the docs [1]) is not a problem for our use
+# [1]: https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/kconfig.html#config-rtc-clk-src
+CONFIG_RTC_CLK_SRC_INT_8MD256=y
+
 # Workaround for https://github.com/espressif/esp-idf/issues/7631
 #CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=n
 #CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=n

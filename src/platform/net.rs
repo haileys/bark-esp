@@ -47,6 +47,16 @@ pub fn rust_to_esp_ipv4_addr(addr: Ipv4Addr) -> sys::ip4_addr {
     sys::ip4_addr { addr }
 }
 
+pub fn rust_to_esp_ip_addr(addr: Ipv4Addr) -> sys::ip_addr {
+    let ip4_addr = rust_to_esp_ipv4_addr(addr);
+
+    let mut ip_addr = sys::ip_addr::default();
+    ip_addr.u_addr.ip4 = ip4_addr;
+    ip_addr.type_ = sys::lwip_ip_addr_type_IPADDR_TYPE_V4 as u8;
+
+    ip_addr
+}
+
 pub fn esp_to_rust_ipv4_addr(addr: sys::ip4_addr) -> Ipv4Addr {
     let addr = addr.addr;
 

@@ -3,7 +3,9 @@ use core::net::{SocketAddrV4, Ipv4Addr};
 use core::sync::atomic::{AtomicU32, Ordering};
 
 use bark_protocol::packet::{Packet, PacketKind};
+use bark_protocol::types::{TimePhase, TimestampMicros};
 use cstr::cstr;
+use derive_more::From;
 use memoffset::offset_of;
 use esp_idf_sys as sys;
 use static_assertions::{const_assert, const_assert_eq};
@@ -15,6 +17,13 @@ use crate::platform::net;
 use crate::sync::streambuffer;
 use crate::system::heap::MallocError;
 use crate::system::task;
+
+mod protocol;
+mod stream;
+
+use protocol::Protocol;
+
+use self::protocol::{BindError, SocketError};
 
 // statically assert that the bark pbuf type is compatible with esp-idf's
 const_assert_eq!(
@@ -45,13 +54,10 @@ pub fn stop() {
 
 }
 
-#[derive(Debug)]
+#[derive(Debug, From)]
 pub enum AppError {
-    NewSocket(net::NetError),
-    AllocateStreamBuffer(MallocError),
-    SetOnReceiveCallback(MallocError),
-    BindSocket(net::NetError),
-    JoinMulticastGroup(net::NetError),
+    Bind(BindError),
+    Socket(SocketError),
 }
 
 async fn task() -> Result<(), AppError> {
@@ -60,85 +66,38 @@ async fn task() -> Result<(), AppError> {
 
     crate::system::task::log_tasks();
 
-    let mut socket = net::udp::Udp::new()
-        .map_err(AppError::NewSocket)?;
-
-    let (mut packet_tx, mut packet_rx) = streambuffer::channel(16)
-        .map_err(AppError::AllocateStreamBuffer)?;
-
-    socket.on_receive(move |pbuf, addr| {
-        let pbuf = pbuf.cast::<bark_pbuf::ffi::pbuf>();
-        let pbuf = unsafe { bark_pbuf::BufferImpl::from_raw(pbuf) };
-        let buffer = PacketBuffer::from_underlying(pbuf);
-
-        match align_packet_buffer(buffer) {
-            Ok(buffer) => {
-                match packet_tx.try_send((buffer, addr)) {
-                    Ok(()) => {}
-                    Err(_) => {
-                        // failed to write to stream buffer!!
-                        // the app task must be failing to keep up, nothing we
-                        // can do here but drop the packet
-                    }
-                }
-            },
-            Err(_) => {
-                // failed to allocate!! this is probably the most likely
-                // place we'll fail to allocate in bark-esp: apart from the
-                // wifi packet buffer, which we do try to reuse if aligned,
-                // it is the only data plane allocation we do.
-                //
-                // quietly drop the error for now, but TODO we need to report
-                // it somehow, we should avoid logging in this callback.
-            }
-        }
-    }).map_err(AppError::SetOnReceiveCallback)?;
-
-    socket.bind(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, MULTICAST_PORT))
-        .map_err(AppError::BindSocket)?;
-
-    net::join_multicast_group(MULTICAST_GROUP)
-        .map_err(AppError::JoinMulticastGroup)?;
+    let mut protocol = Protocol::bind(MULTICAST_GROUP, MULTICAST_PORT)?;
 
     loop {
-        let (buffer, addr) = packet_rx.receive().await;
-        receive_packet_buffer(buffer, addr);
-        // task::delay(Duration::from_millis(500));
-        // log::info!("audio packets received: {}", AUDIO_PACKETS_RECEIVED.load(Ordering::Relaxed));
+        let (packet, addr) = match protocol.receive().await {
+            Ok(result) => result,
+            Err(e) => {
+                log::warn!("error receiving protocol packet: {e:?}");
+                continue;
+            }
+        };
+
+        match packet {
+            PacketKind::Time(mut time) => {
+                match time.data().phase() {
+                    Some(TimePhase::Broadcast) => {
+                        let data = time.data_mut();
+                        data.receive_2 = timestamp();
+                        protocol.send(time.as_packet(), addr)?;
+                    }
+                    Some(TimePhase::StreamReply) => {
+                        log::info!("received stream reply time packet!");
+                    }
+                    _ => { /* invalid */ }
+                }
+            }
+            _ => {}
+        }
     }
 }
 
-fn receive_packet_buffer(buffer: PacketBuffer, addr: SocketAddrV4) {
-    let packet = Packet::from_buffer(buffer)
-        .and_then(|packet| packet.parse());
-
-    match packet {
-        None => { return; }
-        Some(PacketKind::Audio(_)) => {
-            AUDIO_PACKETS_RECEIVED.fetch_add(1, Ordering::SeqCst);
-        }
-        Some(_) => {
-            log::info!("received packet from {addr}: {packet:?}")
-        }
-    }
-}
-
-fn align_packet_buffer(buffer: PacketBuffer) -> Result<PacketBuffer, AllocError> {
-    let align_offset = buffer.as_bytes().as_ptr() as usize % size_of::<u32>();
-
-    if align_offset == 0 {
-        // already aligned, nothing to do:
-        return Ok(buffer);
-    }
-
-    // packet is not aligned :( we have to reallocate + move it
-    let mut aligned_buffer = PacketBuffer::allocate(buffer.len())?;
-
-    // copy from the unaligned buffer into the aligned buffer:
-    aligned_buffer.as_bytes_mut().copy_from_slice(buffer.as_bytes());
-
-    // drop the unaligned buffer:
-    drop(buffer);
-
-    Ok(aligned_buffer)
+fn timestamp() -> TimestampMicros {
+    let micros: i64 = unsafe { sys::esp_timer_get_time() };
+    let micros: u64 = micros.try_into().expect("negative timestamp from esp_timer_get_time");
+    TimestampMicros(micros)
 }
