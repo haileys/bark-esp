@@ -14,7 +14,7 @@ debug = true    # Symbols are nice and they don't increase the size on Flash
 opt-level = "z"
 
 [dependencies]
-bark-protocol = { path = "../bark/bark-protocol", default-features = false, features = ["pbuf"] }
+bark-protocol = { git = "https://github.com/haileys/bark", branch = "esp", default-features = false, features = ["pbuf"] }
 
 ascii = { version = "1.1.0", default-features = false }
 atomic_enum = "0.2.0"
