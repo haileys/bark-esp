@@ -1,5 +1,6 @@
 use core::ffi::{CStr, c_void};
-use core::fmt::{Display, self};
+use core::fmt::{Display, self, Debug};
+use core::future::Future;
 use core::ptr::{self, NonNull};
 use core::time::Duration;
 
@@ -10,6 +11,14 @@ use esp_println::{println, print};
 use heapless::Vec;
 
 use super::heap::{HeapBox, MallocError};
+
+mod execute;
+mod registry;
+mod waker;
+
+pub use waker::TaskWakerSet;
+
+pub type TaskPtr = NonNull<sys::tskTaskControlBlock>;
 
 const MAX_TASKS: usize = 32;
 const DEFAULT_STACK_SIZE: u32 = 8192;
@@ -38,6 +47,12 @@ pub fn delay(duration: Duration) {
     unsafe { sys::vTaskDelay(duration); }
 }
 
+pub fn current() -> TaskPtr {
+    unsafe {
+        NonNull::new_unchecked(sys::xTaskGetCurrentTaskHandle())
+    }
+}
+
 #[derive(Debug, From)]
 pub enum SpawnError {
     AllocateClosure(MallocError),
@@ -63,18 +78,34 @@ impl TaskBuilder {
         self
     }
 
-    pub fn spawn<F: FnOnce() + Send + 'static>(self, main: F) -> Result<(), SpawnError> {
+    pub fn spawn<F, Fut, R>(self, main: F) -> Result<(), SpawnError>
+    where
+        F: FnOnce() -> Fut + Send + 'static,
+        Fut: Future<Output = R>,
+        R: TaskReturn,
+    {
         let boxed_main = HeapBox::alloc(main)?;
 
-        unsafe extern "C" fn start<F: FnOnce() + Send + 'static>(param: *mut c_void) {
+        unsafe extern "C" fn start<F, Fut, R>(param: *mut c_void)
+        where
+            F: FnOnce() -> Fut + Send + 'static,
+            Fut: Future<Output = R>,
+            R: TaskReturn
+        {
+            // unbox closure from param
             let boxed_main = NonNull::new_unchecked(param).cast::<F>();
             let boxed_main = HeapBox::from_raw(boxed_main);
             let main = HeapBox::into_inner(boxed_main);
-            main();
 
+            // invoke closure as task route
+            let result = execute::execute(main());
+
+            // log task exit with task name
             let name = CStr::from_ptr(sys::pcTaskGetName(ptr::null_mut()));
-            log::info!("Task exited: {}", name.to_str().unwrap());
+            let name = name.to_str().unwrap_or_default();
+            result.log(name);
 
+            // freertos tasks must never return, instead delete current task:
             sys::vTaskDelete(ptr::null_mut());
             unreachable!();
         }
@@ -85,7 +116,7 @@ impl TaskBuilder {
 
         let rc = unsafe {
             sys::xTaskCreatePinnedToCore(
-                Some(start::<F>),
+                Some(start::<F, Fut, R>),
                 self.name.as_ptr(),
                 self.stack_bytes,
                 boxed_main_ptr.cast::<c_void>().as_ptr(),
@@ -103,6 +134,27 @@ impl TaskBuilder {
             let _boxed_main = unsafe { HeapBox::from_raw(boxed_main_ptr) };
 
             Err(SpawnError::TaskCreateError)
+        }
+    }
+}
+
+pub trait TaskReturn {
+    fn log(self, task_name: &str);
+}
+
+impl TaskReturn for () {
+    fn log(self, task_name: &str) {
+        log::info!("{task_name} exited");
+    }
+}
+
+impl<T: TaskReturn, E: Debug> TaskReturn for Result<T, E> {
+    fn log(self, task_name: &str) {
+        match self {
+            Ok(val) => val.log(task_name),
+            Err(err) => {
+                log::error!("{task_name} failed with error: {err:?}");
+            }
         }
     }
 }
@@ -224,8 +276,8 @@ enum CoreAffinity {
 impl Display for CoreAffinity {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            CoreAffinity::Any => "*".fmt(f),
-            CoreAffinity::Pinned(core) => core.fmt(f),
+            CoreAffinity::Any => Display::fmt("*", f),
+            CoreAffinity::Pinned(core) => Display::fmt(core, f),
         }
     }
 }
@@ -260,7 +312,7 @@ impl Display for TaskState {
             TaskState::Invalid   => "",
         };
 
-        str.fmt(f)
+        Display::fmt(str, f)
     }
 }
 
