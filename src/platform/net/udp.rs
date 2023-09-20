@@ -4,7 +4,6 @@ use core::net::SocketAddrV4;
 use core::ffi::c_void;
 use core::mem::ManuallyDrop;
 
-use bark_protocol::packet::Packet;
 use bitflags::bitflags;
 use esp_idf_sys as sys;
 
@@ -14,7 +13,7 @@ use bark_protocol::buffer::pbuf as bark_pbuf;
 use crate::system::heap::{HeapBox, UntypedHeapBox, MallocError};
 use crate::sync::EventGroup;
 
-use super::{NetError, LwipError, esp_to_rust_ipv4_addr, rust_to_esp_ipv4_addr, rust_to_esp_ip_addr};
+use super::{NetError, LwipError, esp_to_rust_ipv4_addr, rust_to_esp_ip_addr};
 
 pub struct Udp {
     udp: UdpPtr,

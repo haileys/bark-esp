@@ -2,7 +2,6 @@ use core::ffi::{CStr, c_void};
 use core::fmt::{Display, self, Debug};
 use core::future::Future;
 use core::ptr::{self, NonNull};
-use core::time::Duration;
 
 use ascii::AsciiStr;
 use derive_more::From;
@@ -23,7 +22,6 @@ pub type TaskPtr = NonNull<sys::tskTaskControlBlock>;
 const MAX_TASKS: usize = 32;
 const DEFAULT_STACK_SIZE: u32 = 8192;
 const DEFAULT_PRIORITY: u32 = 0;
-const TICKS_PER_SECOND: u32 = 1000;
 
 #[must_use = "must call TaskBuilder::spawn to actually create task"]
 pub struct TaskBuilder {
@@ -40,11 +38,6 @@ pub fn new(name: &'static CStr) -> TaskBuilder {
         priority: DEFAULT_PRIORITY,
         core: 0,
     }
-}
-
-pub fn delay(duration: Duration) {
-    let duration = duration.as_millis() as u32 * TICKS_PER_SECOND / 1000;
-    unsafe { sys::vTaskDelay(duration); }
 }
 
 pub fn current() -> TaskPtr {

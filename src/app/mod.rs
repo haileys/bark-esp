@@ -1,8 +1,6 @@
-use core::mem::size_of;
-use core::net::{SocketAddrV4, Ipv4Addr};
-use core::sync::atomic::{AtomicU32, Ordering};
+use core::net::Ipv4Addr;
 
-use bark_protocol::packet::{Packet, PacketKind};
+use bark_protocol::packet::PacketKind;
 use bark_protocol::types::{TimePhase, TimestampMicros};
 use cstr::cstr;
 use derive_more::From;
@@ -10,12 +8,8 @@ use memoffset::offset_of;
 use esp_idf_sys as sys;
 use static_assertions::{const_assert, const_assert_eq};
 
-use bark_protocol::buffer::{PacketBuffer, AllocError};
 use bark_protocol::buffer::pbuf as bark_pbuf;
 
-use crate::platform::net;
-use crate::sync::streambuffer;
-use crate::system::heap::MallocError;
 use crate::system::task;
 
 mod protocol;
@@ -38,8 +32,6 @@ const_assert_eq!(
 const_assert_eq!(
     offset_of!(bark_pbuf::ffi::pbuf, len),
     offset_of!(sys::pbuf, len));
-
-static AUDIO_PACKETS_RECEIVED: AtomicU32 = AtomicU32::new(0);
 
 const MULTICAST_GROUP: Ipv4Addr = Ipv4Addr::new(224, 100, 100, 100);
 const MULTICAST_PORT: u16 = 1530;

@@ -14,6 +14,8 @@
 #include "esp_netif.h"
 #include "esp_netif_net_stack.h"
 
+#include "bark_native/queue.h"
+
 const TickType_t freertos_wait_forever = portMAX_DELAY;
 
 SemaphoreHandle_t bark_create_recursive_mutex();

@@ -1,3 +1,12 @@
-idf_component_register(SRCS "native.c" "signal.c"
-                       INCLUDE_DIRS "include"
-                       REQUIRES freertos lwip esp_netif)
+idf_component_register(
+    SRCS
+        "native.c"
+        "queue.c"
+        "signal.c"
+    INCLUDE_DIRS
+        "include"
+    REQUIRES
+        esp_netif
+        freertos
+        lwip
+)

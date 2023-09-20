@@ -1,29 +1,24 @@
-use core::net::Ipv4Addr;
-use core::net::SocketAddrV4;
+use core::net::{Ipv4Addr, SocketAddrV4};
 
-use bark_protocol::buffer::AllocError;
-use bark_protocol::buffer::PacketBuffer;
-use bark_protocol::buffer::pbuf as bark_pbuf;
-use bark_protocol::packet::Packet;
-use bark_protocol::packet::PacketKind;
+use bark_protocol::buffer::{AllocError, PacketBuffer};
+use bark_protocol::packet::{Packet, PacketKind};
 use derive_more::From;
 
 use crate::platform::net;
 use crate::platform::net::NetError;
 use crate::platform::net::udp::Udp;
-use crate::sync::streambuffer;
-use crate::sync::streambuffer::StreamReceiver;
+use crate::sync::queue::{self, QueueReceiver, AllocQueueError};
 use crate::system::heap::MallocError;
 
 pub struct Protocol {
     socket: Udp,
-    packet_rx: StreamReceiver<Result<(PacketBuffer, SocketAddrV4), AllocError>>,
+    packet_rx: QueueReceiver<Result<(PacketBuffer, SocketAddrV4), AllocError>>,
 }
 
 #[derive(Debug)]
 pub enum BindError {
     NewSocket(net::NetError),
-    AllocateStreamBuffer(MallocError),
+    AllocatePacketQueue(AllocQueueError),
     SetOnReceiveCallback(MallocError),
     BindSocket(net::NetError),
     JoinMulticastGroup(net::NetError),
@@ -40,8 +35,8 @@ impl Protocol {
         let mut socket = net::udp::Udp::new()
             .map_err(BindError::NewSocket)?;
 
-        let (mut packet_tx, mut packet_rx) = streambuffer::channel(16)
-            .map_err(BindError::AllocateStreamBuffer)?;
+        let (mut packet_tx, packet_rx) = queue::channel(16)
+            .map_err(BindError::AllocatePacketQueue)?;
 
         socket.on_receive(move |buffer, addr| {
             let result = align_packet_buffer(buffer)

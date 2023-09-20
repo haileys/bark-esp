@@ -75,6 +75,7 @@ pub fn channel<T>(capacity: usize)
 unsafe impl<T> Send for StreamSender<T> {}
 unsafe impl<T> Send for StreamReceiver<T> {}
 
+#[allow(unused)]
 impl<T: Send> StreamReceiver<T> {
     pub fn poll_receive(&mut self, cx: &Context) -> Poll<T> {
         let shared = self.handle.shared();
@@ -111,6 +112,7 @@ impl<T: Send> StreamReceiver<T> {
     }
 }
 
+#[allow(unused)]
 impl<T: Send> StreamSender<T> {
     fn has_capacity_for_write(&self) -> bool {
         let bytes_for_write = unsafe {
