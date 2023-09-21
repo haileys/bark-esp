@@ -38,7 +38,9 @@ impl Protocol {
         let (mut packet_tx, packet_rx) = queue::channel(16)
             .map_err(BindError::AllocatePacketQueue)?;
 
-        socket.on_receive(move |buffer, addr| {
+        socket.on_receive(move |pbuf, addr| {
+            let buffer = PacketBuffer::from_raw(pbuf);
+
             let result = align_packet_buffer(buffer)
                 .map(|buffer| (buffer, addr));
 

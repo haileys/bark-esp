@@ -8,7 +8,8 @@ use bitflags::bitflags;
 use esp_idf_sys as sys;
 
 use bark_protocol::buffer::PacketBuffer;
-use bark_protocol::buffer::pbuf as bark_pbuf;
+use esp_pbuf::PbufMut;
+use esp_pbuf::raw::PbufPtr;
 
 use crate::system::heap::{HeapBox, UntypedHeapBox, MallocError};
 use crate::sync::EventGroup;
@@ -99,17 +100,12 @@ impl Udp {
         let port = addr.port();
         let ip_addr = rust_to_esp_ip_addr(*addr.ip());
 
-        let pbuf = buffer.underlying();
+        let pbuf = buffer.underlying().pbuf();
 
         LwipError::check(unsafe {
-            let pbuf = pbuf.pbuf()
-                as *const bark_pbuf::ffi::pbuf
-                as *const sys::pbuf
-                as *mut sys::pbuf; // udp_sendto does not actually mutate packet
-
             sys::udp_sendto(
                 self.as_mut_ptr(),
-                pbuf,
+                pbuf as *const _ as *mut _, // does not actually mutate pbuf
                 &ip_addr,
                 port,
             )
@@ -118,7 +114,7 @@ impl Udp {
         Ok(())
     }
 
-    pub fn on_receive<F: FnMut(PacketBuffer, SocketAddrV4)>(&mut self, func: F) -> Result<(), MallocError> {
+    pub fn on_receive<F: FnMut(PbufMut, SocketAddrV4)>(&mut self, func: F) -> Result<(), MallocError> {
         let eventgroup = self.eventgroup.as_ref().get_ref();
 
         let callback = HeapBox::alloc(HeapCallback {
@@ -126,7 +122,7 @@ impl Udp {
             func,
         })?;
 
-        unsafe extern "C" fn dispatch<F: FnMut(PacketBuffer, SocketAddrV4)>(
+        unsafe extern "C" fn dispatch<F: FnMut(PbufMut, SocketAddrV4)>(
             arg: *mut c_void,
             _pcb: *mut sys::udp_pcb,
             pbuf: *mut sys::pbuf,
@@ -148,15 +144,15 @@ impl Udp {
             let addr = esp_to_rust_ipv4_addr((*addr).u_addr.ip4);
             let addr = SocketAddrV4::new(addr, port);
 
-            let pbuf = NonNull::new_unchecked(pbuf);
-            let pbuf = pbuf.cast::<bark_pbuf::ffi::pbuf>();
-            let pbuf = unsafe { bark_pbuf::BufferImpl::from_raw(pbuf) };
-            let buffer = PacketBuffer::from_underlying(pbuf);
+            let pbuf = PbufPtr::new(NonNull::new_unchecked(pbuf));
+            let Ok(pbuf) = PbufMut::try_from_ptr(pbuf) else {
+                panic!("pbuf in udp_recv callback has refcount > 1");
+            };
 
             // call the callback
             {
                 let callback = callback.as_mut();
-                (callback.func)(buffer, addr);
+                (callback.func)(pbuf, addr);
             }
 
             // set flag indicating we're done

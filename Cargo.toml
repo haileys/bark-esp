@@ -14,7 +14,7 @@ debug = true    # Symbols are nice and they don't increase the size on Flash
 opt-level = "z"
 
 [dependencies]
-bark-protocol = { git = "https://github.com/haileys/bark", branch = "esp", default-features = false, features = ["pbuf"] }
+bark-protocol = { git = "https://github.com/haileys/bark", branch = "esp" }
 
 ascii = { version = "1.1.0", default-features = false }
 atomic_enum = "0.2.0"
@@ -22,6 +22,7 @@ bitflags = { version = "2.4.0", features = [] }
 critical-section = "1.1.2"
 cstr = "0.2.11"
 derive_more = { version = "0.99.17" }
+esp-pbuf = "0.1"
 esp-idf-sys = { version = "0.33", default-features = false, features = ["native"] }
 esp-println = { version = "0.6.0", default-features = false, features = ["esp32", "uart"] }
 futures = { version = "0.3.28", default-features = false }

@@ -4,7 +4,6 @@ use bark_protocol::packet::PacketKind;
 use bark_protocol::types::{TimePhase, TimestampMicros};
 use cstr::cstr;
 use derive_more::From;
-use memoffset::offset_of;
 use esp_idf_sys as sys;
 use static_assertions::{const_assert, const_assert_eq};
 
@@ -25,13 +24,7 @@ const_assert_eq!(
     sys::pbuf_type_PBUF_RAM);
 const_assert!(
     bark_pbuf::ffi::PBUF_TRANSPORT
-    >= sys::pbuf_layer_PBUF_TRANSPORT as usize);
-const_assert_eq!(
-    offset_of!(bark_pbuf::ffi::pbuf, payload),
-    offset_of!(sys::pbuf, payload));
-const_assert_eq!(
-    offset_of!(bark_pbuf::ffi::pbuf, len),
-    offset_of!(sys::pbuf, len));
+    >= sys::pbuf_layer_PBUF_TRANSPORT);
 
 const MULTICAST_GROUP: Ipv4Addr = Ipv4Addr::new(224, 100, 100, 100);
 const MULTICAST_PORT: u16 = 1530;
