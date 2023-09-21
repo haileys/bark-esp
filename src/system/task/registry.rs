@@ -69,7 +69,7 @@ impl TaskId {
     }
 
     pub fn slot(&self) -> &'static TaskSlot {
-        &slots()[usize::from(self.0)]
+        &SLOTS[usize::from(self.0)]
     }
 
     pub fn as_bit(&self) -> u32 {
@@ -111,41 +111,37 @@ impl TaskSlot {
     }
 }
 
-fn slots() -> &'static [TaskSlot; MAX_TASKS] {
-    return &SLOTS;
-
-    static SLOTS: [TaskSlot; MAX_TASKS] = [
-        TaskSlot::empty(),
-        TaskSlot::empty(),
-        TaskSlot::empty(),
-        TaskSlot::empty(),
-        TaskSlot::empty(),
-        TaskSlot::empty(),
-        TaskSlot::empty(),
-        TaskSlot::empty(),
-        TaskSlot::empty(),
-        TaskSlot::empty(),
-        TaskSlot::empty(),
-        TaskSlot::empty(),
-        TaskSlot::empty(),
-        TaskSlot::empty(),
-        TaskSlot::empty(),
-        TaskSlot::empty(),
-        TaskSlot::empty(),
-        TaskSlot::empty(),
-        TaskSlot::empty(),
-        TaskSlot::empty(),
-        TaskSlot::empty(),
-        TaskSlot::empty(),
-        TaskSlot::empty(),
-        TaskSlot::empty(),
-        TaskSlot::empty(),
-        TaskSlot::empty(),
-        TaskSlot::empty(),
-        TaskSlot::empty(),
-        TaskSlot::empty(),
-        TaskSlot::empty(),
-        TaskSlot::empty(),
-        TaskSlot::empty(),
-    ];
-}
+static SLOTS: [TaskSlot; MAX_TASKS] = [
+    TaskSlot::empty(),
+    TaskSlot::empty(),
+    TaskSlot::empty(),
+    TaskSlot::empty(),
+    TaskSlot::empty(),
+    TaskSlot::empty(),
+    TaskSlot::empty(),
+    TaskSlot::empty(),
+    TaskSlot::empty(),
+    TaskSlot::empty(),
+    TaskSlot::empty(),
+    TaskSlot::empty(),
+    TaskSlot::empty(),
+    TaskSlot::empty(),
+    TaskSlot::empty(),
+    TaskSlot::empty(),
+    TaskSlot::empty(),
+    TaskSlot::empty(),
+    TaskSlot::empty(),
+    TaskSlot::empty(),
+    TaskSlot::empty(),
+    TaskSlot::empty(),
+    TaskSlot::empty(),
+    TaskSlot::empty(),
+    TaskSlot::empty(),
+    TaskSlot::empty(),
+    TaskSlot::empty(),
+    TaskSlot::empty(),
+    TaskSlot::empty(),
+    TaskSlot::empty(),
+    TaskSlot::empty(),
+    TaskSlot::empty(),
+];
