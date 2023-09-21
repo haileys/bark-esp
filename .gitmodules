@@ -2,4 +2,3 @@
 	path = vendor/esp-idf
 	url = https://github.com/espressif/esp-idf
 	branch = release/v5.1
-	fetchRecurseSubmodules = true
