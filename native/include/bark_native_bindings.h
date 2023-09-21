@@ -14,6 +14,8 @@
 #include "esp_netif.h"
 #include "esp_netif_net_stack.h"
 
+#include "driver/dac_continuous.h"
+
 #include "bark_native/queue.h"
 
 const TickType_t freertos_wait_forever = portMAX_DELAY;

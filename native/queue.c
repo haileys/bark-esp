@@ -23,3 +23,9 @@ rtos_queue_send_to_back(QueueHandle_t queue, const void* ptr, TickType_t wait)
 {
     return xQueueSendToBack(queue, ptr, wait);
 }
+
+bool
+rtos_queue_send_to_back_from_isr(QueueHandle_t queue, const void* ptr, bool* need_wake)
+{
+    return xQueueSendToBackFromISR(queue, ptr, need_wake);
+}
