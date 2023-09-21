@@ -129,9 +129,13 @@ impl Udp {
             addr: *const sys::ip_addr_t,
             port: u16,
         ) {
+            // take ownership of pbuf first thing to prevent leaks:
+            let pbuf = PbufPtr::new(NonNull::new_unchecked(pbuf));
+
+            // take pointer to callback state
             let mut callback = NonNull::new_unchecked(arg).cast::<HeapCallback<F>>();
 
-            // synchronisation barrier
+            // callback state synchronisation barrier
             {
                 let eventgroup = callback.as_ref().eventgroup();
                 let flags = eventgroup.clear(Flags::CALLBACK_SAFE);
@@ -141,10 +145,9 @@ impl Udp {
                 }
             }
 
+            // marshal params
             let addr = esp_to_rust_ipv4_addr((*addr).u_addr.ip4);
             let addr = SocketAddrV4::new(addr, port);
-
-            let pbuf = PbufPtr::new(NonNull::new_unchecked(pbuf));
             let Ok(pbuf) = PbufMut::try_from_ptr(pbuf) else {
                 panic!("pbuf in udp_recv callback has refcount > 1");
             };
