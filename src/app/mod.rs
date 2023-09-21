@@ -13,6 +13,7 @@ use crate::system::task;
 
 mod protocol;
 mod stream;
+mod timing;
 
 use protocol::Protocol;
 
