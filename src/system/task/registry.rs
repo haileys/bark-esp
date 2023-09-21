@@ -7,37 +7,33 @@ use crate::system::task::{self, TaskPtr};
 
 pub const MAX_TASKS: usize = 32;
 
-#[repr(transparent)]
-pub struct TaskSlot {
-    ptr: AtomicPtr<sys::tskTaskControlBlock>
+pub struct TaskRegistration {
+    id: TaskId,
 }
 
-impl TaskSlot {
-    pub const fn empty() -> Self {
-        TaskSlot { ptr: AtomicPtr::new(null_mut()) }
+impl TaskRegistration {
+    pub fn new_for_current_task() -> Self {
+        let task = task::current();
+
+        for id in TaskId::iter() {
+            if id.slot().try_claim(task).is_ok() {
+                return TaskRegistration { id }
+            }
+        }
+
+        panic!("failed to register task, all slots taken! there should never be this many tasks!");
     }
 
-    pub fn load(&self) -> Option<TaskPtr> {
-        NonNull::new(self.ptr.load(Ordering::Relaxed))
-    }
-
-    fn clear(&self) {
-        self.ptr.store(null_mut(), Ordering::Relaxed)
-    }
-
-    fn try_claim(&self, task: TaskPtr) -> Result<(), ()> {
-        let result = self.ptr.compare_exchange(
-            null_mut(),
-            task.as_ptr(),
-            Ordering::SeqCst,
-            Ordering::SeqCst,
-        );
-
-        result.map(|_| ()).map_err(|_| ())
+    pub fn id(&self) -> TaskId {
+        self.id
     }
 }
 
-static REGISTER: [TaskSlot; MAX_TASKS] = empty_register();
+impl Drop for TaskRegistration {
+    fn drop(&mut self) {
+        self.id.slot().clear();
+    }
+}
 
 #[repr(transparent)]
 #[derive(Copy, Clone, Debug)]
@@ -73,7 +69,7 @@ impl TaskId {
     }
 
     pub fn slot(&self) -> &'static TaskSlot {
-        &REGISTER[usize::from(self.0)]
+        &slots()[usize::from(self.0)]
     }
 
     pub fn as_bit(&self) -> u32 {
@@ -85,37 +81,40 @@ impl TaskId {
     }
 }
 
-pub struct TaskRegistration {
-    id: TaskId,
+#[repr(transparent)]
+pub struct TaskSlot {
+    ptr: AtomicPtr<sys::tskTaskControlBlock>
 }
 
-impl TaskRegistration {
-    pub fn new_for_current_task() -> Self {
-        let task = task::current();
-
-        for id in TaskId::iter() {
-            if id.slot().try_claim(task).is_ok() {
-                return TaskRegistration { id }
-            }
-        }
-
-        panic!("failed to register task, all slots taken! there should never be this many tasks!");
+impl TaskSlot {
+    pub const fn empty() -> Self {
+        TaskSlot { ptr: AtomicPtr::new(null_mut()) }
     }
 
-    pub fn id(&self) -> TaskId {
-        self.id
+    pub fn load(&self) -> Option<TaskPtr> {
+        NonNull::new(self.ptr.load(Ordering::Relaxed))
+    }
+
+    fn clear(&self) {
+        self.ptr.store(null_mut(), Ordering::Relaxed)
+    }
+
+    fn try_claim(&self, task: TaskPtr) -> Result<(), ()> {
+        let result = self.ptr.compare_exchange(
+            null_mut(),
+            task.as_ptr(),
+            Ordering::SeqCst,
+            Ordering::SeqCst,
+        );
+
+        result.map(|_| ()).map_err(|_| ())
     }
 }
 
-impl Drop for TaskRegistration {
-    fn drop(&mut self) {
-        self.id.slot().clear();
-    }
-}
+fn slots() -> &'static [TaskSlot; MAX_TASKS] {
+    return &SLOTS;
 
-// keep this out of the way lol
-const fn empty_register() -> [TaskSlot; MAX_TASKS] {
-    [
+    static SLOTS: [TaskSlot; MAX_TASKS] = [
         TaskSlot::empty(),
         TaskSlot::empty(),
         TaskSlot::empty(),
@@ -148,5 +147,5 @@ const fn empty_register() -> [TaskSlot; MAX_TASKS] {
         TaskSlot::empty(),
         TaskSlot::empty(),
         TaskSlot::empty(),
-    ]
+    ];
 }
