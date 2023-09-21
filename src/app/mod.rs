@@ -95,9 +95,5 @@ fn timestamp() -> TimestampMicros {
 }
 
 async fn dac_task() -> Result<(), NewDacError> {
-    let mut dac = Dac::new()?;
-
-    let mut i = 0;
-
-
+    Ok(())
 }
