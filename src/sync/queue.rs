@@ -11,6 +11,8 @@ use esp_idf_sys as sys;
 use crate::system::heap::{MallocError, HeapBox};
 use crate::system::task::TaskWakerSet;
 
+use super::isr::IsrResult;
+
 const RX_ALIVE: u32 = 0x01;
 const TX_ALIVE: u32 = 0x02;
 
@@ -112,6 +114,25 @@ impl<T: Send> QueueSender<T> {
             } else {
                 Err(item.assume_init())
             }
+        }
+    }
+
+    pub unsafe fn send_from_isr(&mut self, item: T) -> IsrResult<(), T> {
+        let shared = self.shared.as_ref();
+        let item = MaybeUninit::new(item);
+        let mut need_wake = false;
+
+        let ok = sys::rtos_queue_send_to_back_from_isr(
+            shared.handle.as_ptr(),
+            item.as_ptr().cast(),
+            &mut need_wake,
+        );
+
+        if ok {
+            let result = shared.notify_rx.wake_from_isr();
+            result.chain(IsrResult::ok((), need_wake))
+        } else {
+            IsrResult::err(item.assume_init(), need_wake)
         }
     }
 

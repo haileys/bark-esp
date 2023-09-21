@@ -8,6 +8,7 @@ use crate::platform::wifi::WifiState;
 use crate::sync::EventGroup;
 use crate::system::task;
 
+pub mod dac;
 pub mod eventloop;
 pub mod net;
 pub mod nvs;

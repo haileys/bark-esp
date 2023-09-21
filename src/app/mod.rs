@@ -9,6 +9,7 @@ use static_assertions::{const_assert, const_assert_eq};
 
 use bark_protocol::buffer::pbuf as bark_pbuf;
 
+use crate::platform::dac::{Dac, DacError, NewDacError};
 use crate::system::task;
 
 mod protocol;
@@ -34,6 +35,10 @@ pub fn start() {
     task::new(cstr!("bark::app"))
         .spawn(task)
         .expect("spawn app task");
+
+    task::new(cstr!("bark::app::dac"))
+        .spawn(dac_task)
+        .expect("spawn app dac task");
 }
 
 pub fn stop() {
@@ -44,6 +49,7 @@ pub fn stop() {
 pub enum AppError {
     Bind(BindError),
     Socket(SocketError),
+    OpenDac(NewDacError),
 }
 
 async fn task() -> Result<(), AppError> {
@@ -86,4 +92,12 @@ fn timestamp() -> TimestampMicros {
     let micros: i64 = unsafe { sys::esp_timer_get_time() };
     let micros: u64 = micros.try_into().expect("negative timestamp from esp_timer_get_time");
     TimestampMicros(micros)
+}
+
+async fn dac_task() -> Result<(), NewDacError> {
+    let mut dac = Dac::new()?;
+
+    let mut i = 0;
+
+
 }

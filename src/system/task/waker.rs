@@ -1,9 +1,13 @@
+use core::convert::Infallible;
 use core::sync::atomic::{Ordering, AtomicU32};
 use core::ptr::{null_mut, NonNull};
 use core::task::{Context, Waker};
 
 use esp_idf_sys as sys;
 
+use crate::sync::isr::IsrResult;
+
+use super::TaskPtr;
 use super::registry::{self, TaskId};
 
 pub struct TaskWaker {
@@ -48,8 +52,27 @@ impl TaskWakerSet {
     }
 
     pub fn wake_all(&self) {
-        let bits = self.bits.swap(0, Ordering::SeqCst);
-        wake_from_bitset(bits);
+        for task in self.take_wakeable() {
+            unsafe { wake(task); }
+        }
+    }
+
+    pub unsafe fn wake_from_isr(&self) -> IsrResult<(), Infallible> {
+        let mut result = IsrResult::default();
+
+        for task in self.take_wakeable() {
+            result = result.chain(wake_from_isr(task));
+        }
+
+        result
+    }
+
+    fn take_wakeable(&self) -> impl Iterator<Item = TaskPtr> + 'static {
+        let bitset = self.bits.swap(0, Ordering::SeqCst);
+
+        TaskId::iter()
+            .filter(move |id| (bitset & id.as_bit()) != 0)
+            .filter_map(|id| id.slot().load())
     }
 }
 
@@ -78,6 +101,20 @@ unsafe fn wake(ptr: NonNull<sys::tskTaskControlBlock>) {
         sys::eNotifyAction_eNoAction,
         null_mut(),
     );
+}
+
+unsafe fn wake_from_isr(ptr: NonNull<sys::tskTaskControlBlock>) -> IsrResult<(), Infallible> {
+    let mut need_wake = 0;
+    sys::xTaskGenericNotifyFromISR(
+        ptr.as_ptr(),
+        0,
+        0,
+        sys::eNotifyAction_eNoAction,
+        null_mut(),
+        &mut need_wake,
+    );
+
+    IsrResult::ok((), need_wake != 0)
 }
 
 mod waker_impl {

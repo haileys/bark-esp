@@ -6,6 +6,9 @@ use esp_idf_sys as sys;
 pub mod boxed;
 pub use boxed::{HeapBox, UntypedHeapBox};
 
+// pub mod dma;
+// pub use dma::DmaBuffer;
+
 // pub mod array;
 // pub use array::RawHeapArray;
 
