@@ -3,6 +3,7 @@ idf_component_register(
         "native.c"
         "queue.c"
         "signal.c"
+        "streambuffer.c"
     INCLUDE_DIRS
         "include"
     REQUIRES

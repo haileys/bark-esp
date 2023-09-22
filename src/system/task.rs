@@ -85,18 +85,24 @@ impl TaskBuilder {
             Fut: Future<Output = R>,
             R: TaskReturn
         {
-            // unbox closure from param
-            let boxed_main = NonNull::new_unchecked(param).cast::<F>();
-            let boxed_main = HeapBox::from_raw(boxed_main);
-            let main = HeapBox::into_inner(boxed_main);
+            // do all the heavy lifting in a scope to ensure that destructors
+            // are run on any left over values before we call vTaskDelete:
+            {
+                // unbox closure from param
+                let boxed_main = NonNull::new_unchecked(param).cast::<F>();
+                let boxed_main = HeapBox::from_raw(boxed_main);
+                let main = HeapBox::into_inner(boxed_main);
 
-            // invoke closure as task route
-            let result = execute::execute(main());
+                // invoke closure as task routine
+                let result = execute::execute(main);
 
-            // log task exit with task name
-            let name = CStr::from_ptr(sys::pcTaskGetName(ptr::null_mut()));
-            let name = name.to_str().unwrap_or_default();
-            result.log(name);
+                // get task name
+                let name = CStr::from_ptr(sys::pcTaskGetName(ptr::null_mut()));
+                let name = name.to_str().unwrap_or_default();
+
+                // log task exit with task name
+                result.log(name);
+            }
 
             // freertos tasks must never return, instead delete current task:
             sys::vTaskDelete(ptr::null_mut());
@@ -107,11 +113,13 @@ impl TaskBuilder {
 
         log::info!("Spawning task: {}", self.name.to_str().unwrap());
 
+        let stack_size = self.stack_bytes + core::mem::size_of::<Fut>() as u32;
+
         let rc = unsafe {
             sys::xTaskCreatePinnedToCore(
                 Some(start::<F, Fut, R>),
                 self.name.as_ptr(),
-                self.stack_bytes,
+                stack_size,
                 boxed_main_ptr.cast::<c_void>().as_ptr(),
                 self.priority,
                 ptr::null_mut(),

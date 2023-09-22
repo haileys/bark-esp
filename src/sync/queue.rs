@@ -1,3 +1,4 @@
+use core::convert::Infallible;
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::mem::{MaybeUninit, size_of};
@@ -134,6 +135,39 @@ impl<T: Send> QueueSender<T> {
         } else {
             IsrResult::err(item.assume_init(), need_wake)
         }
+    }
+
+    pub unsafe fn send_overwriting_from_isr(&mut self, item: T) -> IsrResult<(), Infallible> {
+        let shared = self.shared.as_ref();
+        let item = MaybeUninit::new(item);
+        let mut need_wake_receive = false;
+        let mut need_wake_send_to_back = false;
+
+        // pop an item from the front of the queue if it's full:
+        let full = sys::xQueueIsQueueFullFromISR(shared.handle.as_ptr());
+        if full != 0 {
+            // panic!("queue full for whatever reason??");
+            // pop item at front
+            let mut dummy = MaybeUninit::uninit();
+            let rc = sys::xQueueReceiveFromISR(
+                shared.handle.as_ptr(),
+                dummy.as_mut_ptr(),
+                &mut need_wake_receive as *mut bool as *mut i32,
+            );
+            if rc != 0 {
+                // make sure its dropped
+                dummy.assume_init();
+            }
+        }
+
+        sys::rtos_queue_send_to_back_from_isr(
+            shared.handle.as_ptr(),
+            item.as_ptr().cast(),
+            &mut need_wake_send_to_back,
+        );
+
+        let result = shared.notify_rx.wake_from_isr();
+        result.chain(IsrResult::ok((), need_wake_receive || need_wake_send_to_back))
     }
 
     pub fn available(&self) -> usize {

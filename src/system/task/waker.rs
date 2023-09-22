@@ -76,23 +76,6 @@ impl TaskWakerSet {
     }
 }
 
-fn wake_from_bitset(bitset: u32) {
-    // for each possible task id:
-    for id in TaskId::iter() {
-        // see if its bit is set in this bitset:
-        if (bitset & id.as_bit()) != 0 {
-            // wake task if so
-            wake_id(id);
-        }
-    }
-}
-
-fn wake_id(id: TaskId) {
-    if let Some(task) = id.slot().load() {
-        unsafe { wake(task); }
-    }
-}
-
 unsafe fn wake(ptr: NonNull<sys::tskTaskControlBlock>) {
     sys::xTaskGenericNotify(
         ptr.as_ptr(),
