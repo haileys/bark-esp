@@ -3,6 +3,9 @@ use core::ffi::c_void;
 use core::ptr::{NonNull, self};
 use esp_idf_sys as sys;
 
+pub mod arc;
+pub use arc::SharedBox;
+
 pub mod boxed;
 pub use boxed::{HeapBox, UntypedHeapBox};
 

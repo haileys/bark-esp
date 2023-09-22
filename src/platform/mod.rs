@@ -2,7 +2,6 @@ use core::pin::Pin;
 use core::sync::atomic::Ordering;
 
 use bitflags::bitflags;
-use cstr::cstr;
 
 use crate::platform::wifi::WifiState;
 use crate::sync::EventGroup;
@@ -30,7 +29,7 @@ pub unsafe fn init() {
     nvs::init();
     wifi::init();
 
-    task::new(cstr!("bark::platform"))
+    task::new("bark::platform")
         .spawn(platform_task)
         .expect("spawn platform task");
 }

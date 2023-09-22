@@ -1,6 +1,6 @@
 idf_component_register(
     SRCS
-        "native.c"
+        "critical.c"
         "queue.c"
         "signal.c"
         "streambuffer.c"

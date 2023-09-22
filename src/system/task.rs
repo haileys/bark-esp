@@ -25,13 +25,13 @@ const DEFAULT_PRIORITY: u32 = 0;
 
 #[must_use = "must call TaskBuilder::spawn to actually create task"]
 pub struct TaskBuilder {
-    name: &'static CStr,
+    name: &'static str,
     stack_bytes: u32,
     priority: u32,
     core: i32,
 }
 
-pub fn new(name: &'static CStr) -> TaskBuilder {
+pub fn new(name: &'static str) -> TaskBuilder {
     TaskBuilder {
         name,
         stack_bytes: DEFAULT_STACK_SIZE,
@@ -111,14 +111,19 @@ impl TaskBuilder {
 
         let boxed_main_ptr = HeapBox::into_raw(boxed_main);
 
-        log::info!("Spawning task: {}", self.name.to_str().unwrap());
+        log::info!("Spawning task: {}", self.name);
 
         let stack_size = self.stack_bytes + core::mem::size_of::<Fut>() as u32;
+
+        const TASK_NAME_LENGTH: usize = 32;
+        let mut name = heapless::Vec::<u8, { TASK_NAME_LENGTH + 1 }>::new();
+        let _ = name.extend(self.name.bytes().take(TASK_NAME_LENGTH));
+        let _ = name.push(0);
 
         let rc = unsafe {
             sys::xTaskCreatePinnedToCore(
                 Some(start::<F, Fut, R>),
-                self.name.as_ptr(),
+                name.as_ptr().cast(),
                 stack_size,
                 boxed_main_ptr.cast::<c_void>().as_ptr(),
                 self.priority,
