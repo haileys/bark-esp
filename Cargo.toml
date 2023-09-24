@@ -23,7 +23,7 @@ critical-section = "1.1.2"
 cstr = "0.2.11"
 derive_more = { version = "0.99.17" }
 esp-idf-sys = { version = "0.33", default-features = false, features = ["native"] }
-esp-pbuf = "0.1"
+esp-pbuf = "0.2"
 esp-println = { version = "0.6.0", default-features = false, features = ["esp32", "uart"] }
 futures = { version = "0.3.28", default-features = false }
 heapless = { version = "0.7.16", default-features = false }

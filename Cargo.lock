@@ -108,7 +108,7 @@ dependencies = [
 [[package]]
 name = "bark-protocol"
 version = "0.1.0"
-source = "git+https://github.com/haileys/bark?branch=esp#3b9c42d13f477562ea7247166e336abc544ed13d"
+source = "git+https://github.com/haileys/bark?branch=esp#2802b8144bd658d556e437bf63edaf8ed19b84a2"
 dependencies = [
  "bitflags 2.4.0",
  "bytemuck",
@@ -446,9 +446,9 @@ dependencies = [
 
 [[package]]
 name = "esp-pbuf"
-version = "0.1.0"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e4e265745059669e3767ab11a5d2e4c4d20d0bbdad74d8ac054cbcc92bb0c8b"
+checksum = "53836154ac1c89bd589a5c36fa517cbf5e5a4712d4709a1013ec380da850d5f1"
 dependencies = [
  "embuild",
  "esp-idf-sys",
