@@ -1,8 +1,11 @@
+use core::alloc::Layout;
 use core::net::{Ipv4Addr, SocketAddrV4};
 
+use bark_protocol::buffer::pbuf as bark_pbuf;
 use bark_protocol::buffer::{AllocError, PacketBuffer};
 use bark_protocol::packet::{Packet, PacketKind};
 use derive_more::From;
+use esp_pbuf::PbufUninit;
 
 use crate::platform::net;
 use crate::platform::net::NetError;
@@ -86,7 +89,9 @@ impl Protocol {
 // is aligned. TODO - see if we can coax the network stack into giving us
 // properly aligned packets.
 fn align_packet_buffer(buffer: PacketBuffer) -> Result<PacketBuffer, AllocError> {
-    let align_offset = buffer.as_bytes().as_ptr() as usize % core::mem::size_of::<u32>();
+    const ALIGN: usize = core::mem::size_of::<u64>();
+
+    let align_offset = buffer.as_bytes().as_ptr() as usize % ALIGN;
 
     if align_offset == 0 {
         // already aligned, nothing to do:
@@ -94,13 +99,13 @@ fn align_packet_buffer(buffer: PacketBuffer) -> Result<PacketBuffer, AllocError>
     }
 
     // packet is not aligned :( we have to reallocate + move it
-    let mut aligned_buffer = PacketBuffer::allocate(buffer.len())?;
+    let pbuf = PbufUninit::allocate_layout(
+        bark_pbuf::ffi::PBUF_TRANSPORT,
+        bark_pbuf::ffi::PBUF_RAM,
+        Layout::from_size_align(buffer.len(), ALIGN).unwrap(),
+    ).map_err(AllocError)?;
 
-    // copy from the unaligned buffer into the aligned buffer:
-    aligned_buffer.as_bytes_mut().copy_from_slice(buffer.as_bytes());
+    let pbuf = pbuf.copied_from_slice(buffer.as_bytes());
 
-    // drop the unaligned buffer:
-    drop(buffer);
-
-    Ok(aligned_buffer)
+    Ok(PacketBuffer::from_raw(pbuf))
 }
