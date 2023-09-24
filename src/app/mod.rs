@@ -35,10 +35,6 @@ pub fn start() {
     task::new("bark::app")
         .spawn(task)
         .expect("spawn app task");
-
-    task::new("bark::app::dac")
-        .spawn(dac_task)
-        .expect("spawn app dac task");
 }
 
 pub fn stop() {
@@ -147,40 +143,4 @@ pub enum DacTaskError {
     Enable(DacError),
     StartAsync(DacError),
     Write(DacError),
-}
-
-async fn dac_task() -> Result<(), DacTaskError> {
-    const SAMPLE_RATE: u32 = 48000;
-    const HZ: u32 = 50;
-
-    let mut dac = Dac::new()
-        .map_err(DacTaskError::Open)?;
-
-    dac.enable()
-        .map_err(DacTaskError::Enable)?;
-
-    dac.start_async_writing()
-        .map_err(DacTaskError::StartAsync)?;
-
-    let mut t: u32 = 0;
-    let mut buff = [0u8; 1024];
-
-    loop {
-        // fill buffer with sawtooth wave:
-        for [left, right] in buff.array_chunks_mut() {
-            // increment frame time
-            t += 1;
-            // calculate value for this frame
-            let val = (t * HZ * 256) / SAMPLE_RATE;
-            // convert to u8
-            let val = val as u8;
-            // write to buffer
-            *left = val;
-            *right = val;
-        }
-
-        // write buffer to dac
-        dac.write(&buff).await
-            .map_err(DacTaskError::Write)?;
-    }
 }
