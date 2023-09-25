@@ -1,249 +1,214 @@
 use core::alloc::Layout;
+use core::cmp;
+use core::convert::Infallible;
 use core::future::poll_fn;
-use core::marker::PhantomData;
-use core::mem::{MaybeUninit, size_of};
-use core::ptr::{NonNull, self};
-use core::sync::atomic::{AtomicU8, Ordering};
-use core::task::{Poll, Context};
+use core::mem;
+use core::ptr::{self, NonNull};
+use core::slice;
+use core::sync::atomic::{AtomicUsize, AtomicU32, Ordering};
+use core::task::{Context, Poll};
 
-use bitflags::bitflags;
-use esp_idf_sys as sys;
+use static_assertions::const_assert_eq;
 
-use crate::system::heap::{self, MallocError, HeapBox};
+use crate::system::heap::{MallocError, self};
 use crate::system::task::TaskWakerSet;
 
-#[repr(C)]
-struct Shared {
-    buffer: sys::StaticStreamBuffer_t,
-    flags: AtomicFlags,
-    notify_rx: TaskWakerSet,
-    notify_tx: TaskWakerSet,
-}
+use super::isr::IsrResult;
 
-pub struct StreamSender<T> {
-    handle: Handle,
-    _phantom: PhantomData<T>,
-}
-
-pub struct StreamReceiver<T> {
-    handle: Handle,
-    _phantom: PhantomData<T>,
-}
-
-#[allow(unused)]
-pub fn channel<T>(capacity: usize)
-    -> Result<(StreamSender<T>, StreamReceiver<T>), MallocError>
-{
-    let shared = HeapBox::alloc(Shared {
-        buffer: sys::StaticStreamBuffer_t::default(),
-        flags: AtomicFlags::new(),
-        notify_rx: TaskWakerSet::new(),
-        notify_tx: TaskWakerSet::new(),
-    })?;
-
-    let storage_layout = Layout::array::<T>(capacity).unwrap();
-
-    let storage = heap::alloc_layout(storage_layout)?;
-
-    let shared = HeapBox::into_raw(shared);
-
-    let handle = unsafe {
-        sys::xStreamBufferGenericCreateStatic(
-            storage_layout.size(),
-            size_of::<T>(),
-            0,
-            storage.cast::<u8>().as_ptr(),
-            shared.cast::<sys::StaticStreamBuffer_t>().as_ptr(),
-        )
-    };
-
-    assert!(handle != ptr::null_mut());
-
-    let sender = StreamSender {
-        handle: Handle(handle),
-        _phantom: PhantomData,
-    };
-
-    let receiver = StreamReceiver {
-        handle: Handle(handle),
-        _phantom: PhantomData,
-    };
-
+pub fn channel(capacity: usize) -> Result<(StreamSender, StreamReceiver), MallocError> {
+    let shared = SharedRef::alloc(capacity)?;
+    let sender = StreamSender { shared: shared.clone() };
+    let receiver = StreamReceiver { shared };
     Ok((sender, receiver))
 }
 
-unsafe impl<T> Send for StreamSender<T> {}
-unsafe impl<T> Send for StreamReceiver<T> {}
+pub struct StreamSender {
+    shared: SharedRef,
+}
 
-#[allow(unused)]
-impl<T: Send> StreamReceiver<T> {
-    pub fn poll_receive(&mut self, cx: &Context) -> Poll<T> {
-        let shared = self.handle.shared();
+impl StreamSender {
+    pub async fn write(&mut self, mut data: &[u8]) {
+        while data.len() > 0 {
+            let bytes = poll_fn(|cx| self.poll_write(cx, data)).await;
+            data = &data[bytes..];
+        }
+    }
 
-        let bytes_for_read = unsafe {
-            sys::xStreamBufferBytesAvailable(self.handle.0)
-        };
+    pub fn poll_write(&mut self, cx: &Context, data: &[u8]) -> Poll<usize> {
+        // reader always moves forward
+        let header = self.shared.header();
+        let reader = header.reader.load(Ordering::Acquire);
+        let writer = header.writer.load(Ordering::Acquire);
 
-        if bytes_for_read < size_of::<T>() {
-            shared.notify_rx.add_task(cx);
+        if reader == writer {
+            // buffer is full
+            header.notify.add_task(cx);
             return Poll::Pending;
         }
 
-        let mut value = MaybeUninit::<T>::uninit();
+        let capacity =
+            if writer < reader {
+                // simple contiguous case, no wraparound
+                reader - writer
+            } else {
+                // write at most up to the wraparound point, a subsequent
+                // call can write the next chunk from 0
+                header.length - writer
+            };
 
-        let nbytes = unsafe {
-            sys::xStreamBufferReceive(
-                self.handle.0,
-                value.as_mut_ptr().cast(),
-                size_of::<T>(),
-                0
-            )
-        };
+        let nbytes = cmp::min(capacity, data.len());
 
-        assert!(nbytes == size_of::<T>());
+        unsafe {
+            let ptr = self.shared.buffer().add(writer);
+            ptr::copy(data.as_ptr(), ptr, nbytes);
+        }
 
-        shared.notify_tx.wake_all();
+        let writer = (writer + nbytes) % header.length;
+        header.writer.store(writer, Ordering::Release);
 
-        Poll::Ready(unsafe { value.assume_init() })
-    }
-
-    pub async fn receive(&mut self) -> T {
-        poll_fn(|cx| self.poll_receive(cx)).await
+        return Poll::Ready(nbytes);
     }
 }
 
-#[allow(unused)]
-impl<T: Send> StreamSender<T> {
-    fn has_capacity_for_write(&self) -> bool {
-        let bytes_for_write = unsafe {
-            sys::xStreamBufferSpacesAvailable(self.handle.0)
+impl Drop for StreamSender {
+    fn drop(&mut self) {
+        unsafe { self.shared.drop_tx(); }
+    }
+}
+
+pub struct StreamReceiver {
+    shared: SharedRef,
+}
+
+impl StreamReceiver {
+    fn read_internal(&mut self, mut out: &mut [u8]) -> usize {
+        let header = self.shared.header();
+        let buffer = self.shared.buffer();
+
+        let reader = header.reader.load(Ordering::Acquire);
+        let writer = header.writer.load(Ordering::Acquire);
+
+        let slices = unsafe {
+            if reader < writer {
+                // simple contiguous case, no wraparound
+                let len = writer - reader;
+                let ptr = unsafe { buffer.add(reader) };
+                (slice::from_raw_parts(ptr, len), [].as_slice())
+            } else {
+                // handle wraparound
+                let len1 = header.length - reader;
+                let ptr1 = unsafe { buffer.add(reader) };
+
+                let len2 = writer;
+                let ptr2 = buffer;
+
+                (slice::from_raw_parts(ptr1, len1), slice::from_raw_parts(ptr2, len2))
+            }
         };
 
-        bytes_for_write >= size_of::<T>()
+        let mut total_bytes = 0;
+
+        // copy from first slice
+        let copy_len = cmp::min(out.len(), slices.0.len());
+        out[0..copy_len].copy_from_slice(&slices.0[0..copy_len]);
+        total_bytes += copy_len;
+        out = &mut out[copy_len..];
+
+        // copy from second slice
+        let copy_len = cmp::min(out.len(), slices.1.len());
+        out[0..copy_len].copy_from_slice(&slices.1[0..copy_len]);
+        total_bytes += copy_len;
+
+        total_bytes
     }
 
-    pub fn poll_reserve(&mut self, cx: &Context) -> Poll<()> {
-        if self.has_capacity_for_write() {
-            Poll::Ready(())
+    pub unsafe fn read_from_isr(&mut self, out: &mut [u8]) -> IsrResult<usize, Infallible> {
+        let bytes = self.read_internal(out);
+        if bytes > 0 {
+            self.shared.header().notify.wake_from_isr()
+                .map(|()| bytes)
         } else {
-            self.handle.shared().notify_tx.add_task(cx);
-            Poll::Pending
+            IsrResult::ok(bytes, false)
         }
     }
+}
 
-    pub fn try_send(&mut self, value: T) -> Result<(), T> {
-        if !self.has_capacity_for_write() {
-            // sending would write a partial object, don't try
-            return Err(value);
-        }
+impl Drop for StreamReceiver {
+    fn drop(&mut self) {
+        unsafe { self.shared.drop_rx(); }
+    }
+}
 
-        // value transitions from being owned to unowned in this function
-        let value = MaybeUninit::new(value);
+const TX_ALIVE: u32 = 1 << 0;
+const RX_ALIVE: u32 = 1 << 1;
 
-        let nbytes = unsafe {
-            sys::xStreamBufferSend(
-                self.handle.0,
-                value.as_ptr().cast(),
-                size_of::<T>(),
-                0,
-            )
+struct Header {
+    notify: TaskWakerSet,
+    reader: AtomicUsize,
+    writer: AtomicUsize,
+    flags: AtomicU32,
+    length: usize,
+}
+
+const HEADER_SIZE: usize = 20;
+const HEADER_ALIGN: usize = 4;
+const_assert_eq!(HEADER_SIZE, mem::size_of::<Header>());
+const_assert_eq!(HEADER_ALIGN, mem::align_of::<Header>());
+
+#[derive(Clone)]
+struct SharedRef {
+    ptr: NonNull<Header>
+}
+
+impl SharedRef {
+    fn layout(capacity: usize) -> Layout {
+        Layout::from_size_align(
+            HEADER_SIZE + capacity,
+            HEADER_ALIGN,
+        ).unwrap()
+    }
+
+    pub fn alloc(capacity: usize) -> Result<Self, MallocError> {
+        let header = Header {
+            notify: TaskWakerSet::new(),
+            reader: AtomicUsize::new(0),
+            writer: AtomicUsize::new(0),
+            flags: AtomicU32::new(TX_ALIVE | RX_ALIVE),
+            length: capacity,
         };
 
-        assert!(nbytes == size_of::<T>());
+        let ptr = heap::alloc_layout(Self::layout(capacity))?.cast::<Header>();
+        unsafe { ptr::write(ptr.as_ptr(), header); }
 
-        self.handle.shared().notify_rx.wake_all();
-
-        Ok(())
-    }
-
-    pub async fn send(&mut self, value: T) {
-        poll_fn(|cx| self.poll_reserve(cx)).await;
-        if let Err(_) = self.try_send(value) {
-            panic!("streambuffer still full even after poll_reserve ready");
-        }
-    }
-}
-
-impl<T> Drop for StreamSender<T> {
-    fn drop(&mut self) {
-        unsafe { self.handle.clear_flags(Flags::TX_ALIVE); }
-    }
-}
-
-impl<T> Drop for StreamReceiver<T> {
-    fn drop(&mut self) {
-        unsafe { self.handle.clear_flags(Flags::RX_ALIVE); }
-    }
-}
-
-#[repr(transparent)]
-struct Handle(sys::StreamBufferHandle_t);
-
-impl Handle {
-    unsafe fn clear_flags(&mut self, flags: Flags) {
-        let prev = self.shared().flags.clear(flags, Ordering::SeqCst);
-        let current = prev.difference(flags);
-        if current.is_empty() {
-            self.dealloc();
-        }
+        Ok(SharedRef { ptr: ptr.cast() })
     }
 
     unsafe fn dealloc(&mut self) {
-        let (shared, storage) = self.get_static_ptrs();
-        heap::free(shared);
-        heap::free(storage);
+        let length = self.header().length;
+        heap::free_layout(self.ptr.cast(), Self::layout(length));
     }
 
-    fn shared(&self) -> &Shared {
-        unsafe { self.get_static_ptrs().0.as_ref() }
+    pub fn header(&self) -> &Header {
+        unsafe { self.ptr.as_ref() }
     }
 
-    fn get_static_ptrs(&self) -> (NonNull<Shared>, NonNull<u8>) {
-        let mut storage_area: *mut u8 = ptr::null_mut();
-        let mut buffer: *mut sys::StaticStreamBuffer_t = ptr::null_mut();
+    pub fn buffer(&self) -> *mut u8 {
+        unsafe { self.ptr.as_ptr().cast::<u8>().add(HEADER_SIZE) }
+    }
 
-        let rc = unsafe {
-            sys::xStreamBufferGetStaticBuffers(
-                self.0,
-                &mut storage_area,
-                &mut buffer,
-            )
-        };
+    unsafe fn drop_rx(&mut self) {
+        self.drop_side(RX_ALIVE);
+    }
 
-        if rc != 1 {
-            panic!("xStreamBufferGetStaticBuffers failed!")
+    unsafe fn drop_tx(&mut self) {
+        self.drop_side(TX_ALIVE);
+    }
+
+    unsafe fn drop_side(&mut self, flags: u32) {
+        let prev = self.header().flags.fetch_and(!flags, Ordering::SeqCst);
+        let current = prev & !flags;
+        if current == 0 {
+            self.dealloc();
         }
-
-        let storage_area = unsafe { NonNull::new_unchecked(storage_area) };
-        let buffer = unsafe { NonNull::new_unchecked(buffer) };
-
-        // buffer is the first field of the Shared struct, which is repr(C),
-        // so it is safe to cast the buffer pointer to its containing struct:
-        let buffer = buffer.cast::<Shared>();
-
-        (buffer, storage_area)
-    }
-}
-
-bitflags! {
-    #[derive(Clone, Copy)]
-    struct Flags: u8 {
-        const RX_ALIVE = 0x01;
-        const TX_ALIVE = 0x02;
-    }
-}
-
-#[repr(transparent)]
-struct AtomicFlags(AtomicU8);
-
-impl AtomicFlags {
-    pub fn new() -> Self {
-        AtomicFlags(AtomicU8::new(Flags::all().bits()))
-    }
-
-    /// Returns previous value
-    pub fn clear(&self, flags: Flags, order: Ordering) -> Flags {
-        let bits = self.0.fetch_and(flags.complement().bits(), order);
-        Flags::from_bits_retain(bits)
     }
 }

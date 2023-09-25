@@ -2,14 +2,17 @@
 //!
 //! Only supports 8 bit output.
 
+use core::cell::UnsafeCell;
 use core::ffi::c_void;
 use core::future::poll_fn;
 use core::mem::MaybeUninit;
+use core::sync::atomic::{AtomicU32, Ordering, AtomicUsize};
 use core::task::{Context, Poll};
 
 use derive_more::From;
 use esp_idf_sys as sys;
 
+use crate::sync::streambuffer::{self, StreamReceiver, StreamSender};
 use crate::system::heap::{HeapBox, MallocError};
 use crate::system::task::TaskWakerSet;
 
@@ -19,12 +22,12 @@ pub const STREAM_BUFFER_SIZE: usize = 4*1024;
 
 pub struct Dac {
     handle: sys::dac_continuous_handle_t,
+    sender: StreamSender,
     shared: HeapBox<IsrSharedState>,
 }
 
 struct IsrSharedState {
-    buffer: StreamBuffer,
-    notify: TaskWakerSet,
+    receiver: StreamReceiver,
 }
 
 #[derive(Debug, From)]
@@ -48,6 +51,8 @@ impl Dac {
             clk_src: sys::soc_periph_dac_digi_clk_src_t_DAC_DIGI_CLK_SRC_APLL,
             chan_mode: sys::dac_continuous_channel_mode_t_DAC_CHANNEL_MODE_ALTER,
         };
+
+        let (sender, receiver) = streambuffer::channel(STREAM_BUFFER_SIZE)?;
 
         let buffer = StreamBuffer::alloc()
             .ok_or(NewDacError::AllocStreamBuffer)?;

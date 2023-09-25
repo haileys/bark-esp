@@ -19,6 +19,13 @@ impl<T, E> IsrResult<T, E> {
         IsrResult { result: Err(err), need_wake }
     }
 
+    pub fn map<U>(self, func: impl FnOnce(T) -> U) -> IsrResult<U, E> {
+        IsrResult {
+            result: self.result.map(func),
+            need_wake: self.need_wake,
+        }
+    }
+
     pub fn chain<U, F>(self, other: IsrResult<U, F>) -> IsrResult<U, F> {
         IsrResult {
             result: other.result,
