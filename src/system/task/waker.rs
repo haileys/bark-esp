@@ -41,7 +41,7 @@ pub struct TaskWakerSet {
 }
 
 impl TaskWakerSet {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         TaskWakerSet { bits: AtomicU32::new(0) }
     }
 

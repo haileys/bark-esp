@@ -19,6 +19,7 @@ impl<T, E> IsrResult<T, E> {
         IsrResult { result: Err(err), need_wake }
     }
 
+    #[allow(unused)]
     pub fn map<U>(self, func: impl FnOnce(T) -> U) -> IsrResult<U, E> {
         IsrResult {
             result: self.result.map(func),

@@ -1,6 +1,7 @@
 use core::alloc::Layout;
 use core::cmp;
 use core::convert::Infallible;
+use core::ffi::c_void;
 use core::future::poll_fn;
 use core::mem;
 use core::ptr::{self, NonNull};
@@ -8,6 +9,7 @@ use core::slice;
 use core::sync::atomic::{AtomicUsize, AtomicU32, Ordering};
 use core::task::{Context, Poll};
 
+use futures::Stream;
 use static_assertions::const_assert_eq;
 
 use crate::system::heap::{MallocError, self};
@@ -22,6 +24,7 @@ pub fn channel(capacity: usize) -> Result<(StreamSender, StreamReceiver), Malloc
     Ok((sender, receiver))
 }
 
+#[repr(transparent)]
 pub struct StreamSender {
     shared: SharedRef,
 }
@@ -76,35 +79,37 @@ impl Drop for StreamSender {
     }
 }
 
+pub struct UnsafeStreamReceiver {
+    shared: SharedRef,
+}
+
+/// This type does not implement Drop. You gotta do it yourself!
+#[repr(transparent)]
+pub struct RawStreamReceiver {
+    shared: SharedRef,
+}
+
+#[repr(transparent)]
 pub struct StreamReceiver {
     shared: SharedRef,
 }
 
 impl StreamReceiver {
+    pub fn into_raw(self) -> RawStreamReceiver {
+        self.shared.ptr.as_ptr().cast()
+    }
+
+    pub unsafe fn borrow_from_raw_ptr<'a>(ptr: &'a mut *mut c_void) -> &'a mut StreamReceiver {
+        // SAFETY: this is safe because StreamReceiver and SharedRef are both repr(transparent) around a SharedRef
+        mem::transmute(ptr)
+    }
+
     fn read_internal(&mut self, mut out: &mut [u8]) -> usize {
         let header = self.shared.header();
         let buffer = self.shared.buffer();
 
         let reader = header.reader.load(Ordering::Acquire);
         let writer = header.writer.load(Ordering::Acquire);
-
-        let slices = unsafe {
-            if reader < writer {
-                // simple contiguous case, no wraparound
-                let len = writer - reader;
-                let ptr = unsafe { buffer.add(reader) };
-                (slice::from_raw_parts(ptr, len), [].as_slice())
-            } else {
-                // handle wraparound
-                let len1 = header.length - reader;
-                let ptr1 = unsafe { buffer.add(reader) };
-
-                let len2 = writer;
-                let ptr2 = buffer;
-
-                (slice::from_raw_parts(ptr1, len1), slice::from_raw_parts(ptr2, len2))
-            }
-        };
 
         let mut total_bytes = 0;
 
@@ -156,6 +161,7 @@ const_assert_eq!(HEADER_SIZE, mem::size_of::<Header>());
 const_assert_eq!(HEADER_ALIGN, mem::align_of::<Header>());
 
 #[derive(Clone)]
+#[repr(transparent)]
 struct SharedRef {
     ptr: NonNull<Header>
 }

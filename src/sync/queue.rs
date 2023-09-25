@@ -118,6 +118,7 @@ impl<T: Send> QueueSender<T> {
         }
     }
 
+    #[allow(unused)]
     pub unsafe fn send_from_isr(&mut self, item: T) -> IsrResult<(), T> {
         let shared = self.shared.as_ref();
         let item = MaybeUninit::new(item);
@@ -137,6 +138,7 @@ impl<T: Send> QueueSender<T> {
         }
     }
 
+    #[allow(unused)]
     pub unsafe fn send_overwriting_from_isr(&mut self, item: T) -> IsrResult<(), Infallible> {
         let shared = self.shared.as_ref();
         let item = MaybeUninit::new(item);

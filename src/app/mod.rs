@@ -8,7 +8,6 @@ use static_assertions::{const_assert, const_assert_eq};
 
 use bark_protocol::buffer::pbuf as bark_pbuf;
 
-use crate::platform::dac::{Dac, DacError, NewDacError};
 use crate::system::task;
 
 mod consts;
@@ -45,7 +44,6 @@ pub fn stop() {
 pub enum AppError {
     Bind(BindError),
     Socket(SocketError),
-    OpenDac(NewDacError),
 }
 
 async fn task() -> Result<(), AppError> {
@@ -135,12 +133,4 @@ fn timestamp() -> TimestampMicros {
     let micros: i64 = unsafe { sys::esp_timer_get_time() };
     let micros: u64 = micros.try_into().expect("negative timestamp from esp_timer_get_time");
     TimestampMicros(micros)
-}
-
-#[derive(Debug)]
-pub enum DacTaskError {
-    Open(NewDacError),
-    Enable(DacError),
-    StartAsync(DacError),
-    Write(DacError),
 }

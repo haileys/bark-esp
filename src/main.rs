@@ -1,11 +1,11 @@
 #![no_std]
 #![no_main]
 #![feature(array_chunks)]
+#![feature(core_intrinsics)]
 #![feature(ip_in_core)]
 #![feature(sync_unsafe_cell)]
 #![feature(type_alias_impl_trait)]
 #![feature(waker_getters)]
-#![feature(core_intrinsics)]
 
 mod app;
 mod platform;
