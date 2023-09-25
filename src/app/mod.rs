@@ -50,8 +50,6 @@ async fn task() -> Result<(), AppError> {
     log::info!("Starting application");
     log::info!("PBUF_TRANSPORT = {}", sys::pbuf_layer_PBUF_TRANSPORT);
 
-    crate::system::task::log_tasks();
-
     let mut protocol = Protocol::bind(MULTICAST_GROUP, MULTICAST_PORT)?;
     let mut receiver = Receiver::new();
 
@@ -69,7 +67,7 @@ async fn task() -> Result<(), AppError> {
                 let header = audio.header();
                 let stream = receiver.prepare_stream(header.sid, header.seq);
                 if let Some(stream) = stream {
-                    stream.receive_audio(audio);
+                    stream.receive_audio(audio).await;
                 }
             }
             PacketKind::Time(mut time) => {

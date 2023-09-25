@@ -10,6 +10,7 @@ use esp_pbuf::PbufUninit;
 use crate::platform::net;
 use crate::platform::net::NetError;
 use crate::platform::net::udp::Udp;
+use crate::stats::STATS;
 use crate::sync::queue::{self, QueueReceiver, AllocQueueError};
 use crate::system::heap::MallocError;
 
@@ -42,6 +43,8 @@ impl Protocol {
             .map_err(BindError::AllocatePacketQueue)?;
 
         socket.on_receive(move |pbuf, addr| {
+            STATS.wifi_packets_received.increment();
+
             let buffer = PacketBuffer::from_raw(pbuf);
 
             let result = align_packet_buffer(buffer)
@@ -50,9 +53,10 @@ impl Protocol {
             match packet_tx.try_send(result) {
                 Ok(()) => {}
                 Err(_) => {
-                    // failed to write to stream buffer!!
+                    // failed to write packet to queue!!
                     // the app task must be failing to keep up, nothing we
                     // can do here but drop the packet
+                    STATS.packets_dropped_in_protocol_queue.increment();
                 }
             }
         }).map_err(BindError::SetOnReceiveCallback)?;

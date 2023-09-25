@@ -2,14 +2,15 @@ use heapless::Deque;
 
 use bark_protocol::packet::Audio;
 
+use crate::stats::STATS;
 use crate::system::heap::{SharedBox, MallocError};
-use crate::sync::mutex::Mutex;
+use crate::sync::mutex::TaskMutex;
 
 use super::consts::MAX_QUEUED_PACKETS;
 
 #[derive(Clone)]
 pub struct PacketQueue {
-    shared: SharedBox<Mutex<Shared>>,
+    shared: SharedBox<TaskMutex<Shared>>,
 }
 
 impl PacketQueue {
@@ -19,17 +20,17 @@ impl PacketQueue {
 
     pub fn new(start_seq: u64) -> Result<Self, MallocError> {
         let shared = Shared::new(start_seq);
-        let shared = SharedBox::alloc(Mutex::new(shared))?;
+        let shared = SharedBox::alloc(TaskMutex::new(shared))?;
         Ok(PacketQueue { shared })
     }
 
-    pub fn receive_packet(&self, packet: Audio) {
-        let mut shared = self.shared.lock();
+    pub async fn receive_packet(&self, packet: Audio) {
+        let mut shared = self.shared.lock().await;
         shared.insert_packet(packet);
     }
 
-    pub fn pop_front(&self) -> Option<Audio> {
-        let mut shared = self.shared.lock();
+    pub async fn pop_front(&self) -> Option<Audio> {
+        let mut shared = self.shared.lock().await;
         shared.pop_front()
     }
 }
@@ -61,20 +62,24 @@ impl Shared {
         match self.queue_slot_mut(packet_seq) {
             Ok(slot@&mut None) => {
                 *slot = Some(packet);
+                STATS.audio_packets_received_on_time.increment();
             }
             Ok(Some(_)) => {
                 log::warn!("received duplicate packet, retaining first received: packet_seq={packet_seq}");
             }
             Err(NoSlot::InPast) => {
-                log::warn!("received packet in past, dropping: head_seq={head_seq}, packet_seq={packet_seq}");
+                // log::warn!("received packet in past, dropping: head_seq={head_seq}, packet_seq={packet_seq}");
+                STATS.audio_packets_received_late.increment();
             }
             Err(NoSlot::TooFarInFuture) => {
-                log::warn!("received packet too far in future, dropping: tail_seq={tail_seq}, packet_seq={packet_seq}");
+                // log::warn!("received packet too far in future, dropping: tail_seq={tail_seq}, packet_seq={packet_seq}");
+                STATS.audio_packets_received_early.increment();
             }
         }
     }
 
     pub fn pop_front(&mut self) -> Option<Audio> {
+        self.head_seq += 1;
         self.queue.pop_front().flatten()
     }
 

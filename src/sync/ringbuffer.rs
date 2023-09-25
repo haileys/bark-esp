@@ -13,15 +13,19 @@ unsafe impl<T: Copy, const N: usize> Sync for RingBuffer<T, N> {}
 
 impl<const N: usize> RingBuffer<u8, N> {
     pub const fn new() -> Self {
-        RingBuffer {
-            reader: AtomicUsize::new(0),
-            writer: AtomicUsize::new(0),
-            buffer: UnsafeCell::new([0u8; N]),
-        }
+        Self::new_with_buffer([0u8; N])
     }
 }
 
 impl<T: Copy, const N: usize> RingBuffer<T, N> {
+    pub const fn new_with_buffer(buffer: [T; N]) -> Self {
+        RingBuffer {
+            reader: AtomicUsize::new(0),
+            writer: AtomicUsize::new(0),
+            buffer: UnsafeCell::new(buffer),
+        }
+    }
+
     /// SAFETY must not be called while there are any readers or writers
     pub unsafe fn reset(&self) {
         self.reader.store(0, Ordering::Relaxed);
@@ -37,18 +41,26 @@ impl<T: Copy, const N: usize> RingBuffer<T, N> {
     }
 
     /// SAFETY: only one task may be reading at any given time
+    #[allow(unused)]
     pub unsafe fn read(&self, data: &mut [T]) -> usize {
+        self.read_in_place(|left, right| {
+            copy_from_split(left, right, data)
+        })
+    }
+
+    /// SAFETY: only one task may be reading at any given time
+    pub unsafe fn read_in_place(&self, func: impl FnOnce(&[T], &[T]) -> usize) -> usize {
         let reader = self.reader.load(Ordering::Acquire);
         let writer = self.writer.load(Ordering::Acquire);
 
-        let (left, right) = slices(
+        let (left, right) = reader_slices(
             self.buffer_ptr(),
             self.buffer_len(),
             reader,
             writer,
         );
 
-        let copied = copy_from_split(left, right, data);
+        let copied = func(left, right);
 
         let reader = (reader + copied) % N;
         self.reader.store(reader, Ordering::Release);
@@ -61,12 +73,25 @@ impl<T: Copy, const N: usize> RingBuffer<T, N> {
         let reader = self.reader.load(Ordering::Acquire);
         let writer = self.writer.load(Ordering::Acquire);
 
-        let (left, right) = slices_mut(
+        // esp_println::println!("writing: reader={reader}, writer={writer}");
+
+        let (left, right) = writer_slices(
             self.buffer_ptr(),
             self.buffer_len(),
             writer,
             reader,
         );
+
+        let available = left.len() + right.len();
+
+        let data = if data.len() >= available {
+            // we need to never fill up the entire ringbuffer, since
+            // reader == writer indicates that it is empty. so, if we would
+            // fill the ring buffer, slice data so that we don't
+            &data[0..(available.saturating_sub(1))]
+        } else {
+            data
+        };
 
         let copied = copy_to_split(data, left, right);
 
@@ -74,6 +99,26 @@ impl<T: Copy, const N: usize> RingBuffer<T, N> {
         self.writer.store(writer, Ordering::Release);
 
         copied
+    }
+
+    // Fills all available space for writing in buffer with copies of T
+    pub unsafe fn fill(&self, value: T) {
+        let reader = self.reader.load(Ordering::Acquire);
+        let writer = self.writer.load(Ordering::Acquire);
+
+        let (left, right) = writer_slices(
+            self.buffer_ptr(),
+            self.buffer_len(),
+            writer,
+            reader,
+        );
+
+        left.fill(value);
+        right.fill(value);
+
+        let copied = (left.len() + right.len()).saturating_sub(1);
+        let writer = (writer + copied) % N;
+        self.writer.store(writer, Ordering::Release);
     }
 }
 
@@ -101,12 +146,14 @@ fn copy_from_split<T: Copy>(src_left: &[T], src_right: &[T], dst: &mut [T]) -> u
     nleft + nright
 }
 
-unsafe fn slices<'a, T>(
+unsafe fn reader_slices<'a, T>(
     ring: *const T,
     length: usize,
     start: usize,
     end: usize,
 ) -> (&'a [T], &'a [T]) {
+    // we use <= here because start == end means there is no data in the
+    // ringbuffer, and so nothing to read:
     if start <= end {
         // simple contiguous case, no wraparound
         let slice = slice::from_raw_parts(ring.add(start), end - start);
@@ -120,13 +167,13 @@ unsafe fn slices<'a, T>(
     }
 }
 
-unsafe fn slices_mut<'a, T>(
+unsafe fn writer_slices<'a, T>(
     ring: *mut T,
     length: usize,
     start: usize,
     end: usize,
 ) -> (&'a mut [T], &'a mut [T]) {
-    if start <= end {
+    if start < end {
         // simple contiguous case, no wraparound
         let slice = slice::from_raw_parts_mut(ring.add(start), end - start);
         (slice, &mut [])

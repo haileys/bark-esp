@@ -9,6 +9,7 @@
 
 mod app;
 mod platform;
+mod stats;
 mod sync;
 mod system;
 
@@ -16,6 +17,9 @@ mod system;
 pub unsafe extern "C" fn app_main() {
     system::init();
     log::info!("System initialized");
+
+    system::task::top::start();
+    stats::start();
 
     platform::init();
     log::info!("Platform initialized");
