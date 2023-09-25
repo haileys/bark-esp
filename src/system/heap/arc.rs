@@ -20,7 +20,7 @@ impl<T> SharedBox<T> {
     pub fn alloc(value: T) -> Result<Self, MallocError> {
         let ptr = HeapBox::into_raw(HeapBox::alloc(Inner {
             data: value,
-            refcount: AtomicUsize::new(0),
+            refcount: AtomicUsize::new(1),
         })?);
 
         Ok(SharedBox { ptr })
